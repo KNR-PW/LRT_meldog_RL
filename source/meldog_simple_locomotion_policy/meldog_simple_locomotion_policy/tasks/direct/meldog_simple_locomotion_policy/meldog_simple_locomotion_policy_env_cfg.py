@@ -38,23 +38,23 @@ MELDOG_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 1.55),  # Based on your URDF's base_joint origin
+        pos=(0.0, 0.0, 0.55),  # Based on your URDF's base_joint origin
         joint_pos={
             # !! IMPORTANT !!
             # These are the 12 joint names from your URDF.
             # You should change the 0.0 values to a default "standing" pose.
             "LFT_joint": 0.0,
-            "LFH_joint": 0.0,
-            "LFK_joint": 0.0,
+            "LFH_joint": -0.8,
+            "LFK_joint": 1.6,
             "RFT_joint": 0.0,
-            "RFH_joint": 0.0,
-            "RFK_joint": 0.0,
+            "RFH_joint": -0.8,
+            "RFK_joint": 1.6,
             "LRT_joint": 0.0,
-            "LRH_joint": 0.0,
-            "LRK_joint": 0.0,
+            "LRH_joint": -0.8,
+            "LRK_joint": 1.6,
             "RRT_joint": 0.0,
-            "RRH_joint": 0.0,
-            "RRK_joint": 0.0,
+            "RRH_joint": -0.8,
+            "RRK_joint": 1.6,
         },
         joint_vel={".*": 0.0},
     ),
@@ -67,8 +67,8 @@ MELDOG_CFG = ArticulationCfg(
             # Add this line:
             saturation_effort=34.895, 
             # These are good starting values, copied from other quadrupeds
-            stiffness=60.0,
-            damping=1.5,
+            stiffness=40.0,
+            damping=2.0,
             velocity_limit=18.9, # From your URDF
         )
     },
@@ -101,7 +101,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
 
     # scene
     # Quadrupeds are bigger, so increase env_spacing
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=5.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
     ##
     # Custom Parameters
@@ -128,7 +128,8 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         class RewScale:
             """Reward scales for the task."""
             # (These are all positive, the reward function will handle signs)
-            lin_vel_xy = 1.0      # track linear velocity
+            lin_vel_xy = 10.0      # track linear velocity
+            lin_vel_y = 0.5       # penalty for lateral drift
             ang_vel_z = 0.5       # track angular velocity
             lin_vel_z = 0.2       # penalize z velocity
             ang_vel_xy = 0.05     # penalize roll/pitch velocity
@@ -142,7 +143,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         class Terminations:
             """Termination conditions for the task."""
             reset_robot_on_base_contact = True
-            reset_robot_on_joint_limits = True
+            reset_robot_on_joint_limits = False
 
     # We assign our new custom parameters class to the config
     params: CustomParams = CustomParams()

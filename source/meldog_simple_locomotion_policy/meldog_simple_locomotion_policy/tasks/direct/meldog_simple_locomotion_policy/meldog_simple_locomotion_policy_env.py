@@ -15,6 +15,7 @@ from isaaclab.scene import InteractiveScene
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import quat_apply_inverse
 from isaaclab.sensors import ContactSensor, ContactSensorCfg
+from isaaclab.sim.spawners.lights import DomeLightCfg
 import pdb
 
 from .meldog_simple_locomotion_policy_env_cfg import MeldogSimpleLocomotionPolicyEnvCfg
@@ -84,6 +85,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         # Spawn a flat ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
+
+        # Add scene lighting
+        light_cfg = DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
+        light_cfg.func("/World/Light", light_cfg)
         
         # Add contact sensors to the feet
         # This allows us to check self.foot_contact_sensor.data.is_in_contact
@@ -118,25 +123,26 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         # Store the actions for observation and reward calculation
         self.actions = actions.clone()
         
-
     def _apply_action(self) -> None:
         """Apply actions to the robot."""
-        # The actions are target joint positions.
-        # We need to scale them by the action_scale to get the desired position.
-        # Here, we assume the policy outputs values in [-1, 1].
-        # We scale them to be offsets from the default "standing" pose.
+        # -- CHANGE TO POSITION CONTROL --
         
-        # For a simple starter policy, we'll assume actions are *direct forces/torques*
-        # (This is simpler to start with than a position controller)
+        # 1. Define a scaling factor. 
+        # This determines how far the robot can move from the default pose.
+        # 0.5 radians is a good range (approx 30 degrees).
+        action_scale = 0.5 
         
-        # Convert actions to torques (efforts)
-        # We use the motor's effort limit as the action scale.
-        action_scale = self.robot.actuators["all_joints"].cfg.effort_limit
-        efforts = self.actions * action_scale
+        # 2. Compute the target joint positions
+        # Target = Default Standing Pose + (Policy Output * Scale)
+        current_targets = self.default_joint_pos + (self.actions * action_scale)
         
-        # Apply the efforts to the correct joints
-        self.robot.set_joint_effort_target(efforts, joint_ids=self.actuated_joint_indices)
+        # 3. Clip targets to safe limits (optional but recommended)
+        # Assuming your robot generally operates between -3.14 and 3.14
+        current_targets = torch.clamp(current_targets, -3.14, 3.14)
 
+        # 4. Send Position Targets to the simulator
+        # The internal PD controller (defined in config) will generate the torques
+        self.robot.set_joint_position_target(current_targets, joint_ids=self.actuated_joint_indices)
 
     def _get_observations(self) -> dict:
         """Get observations for the RL policy."""
@@ -272,6 +278,23 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             terminated = fell_over | joint_limits_exceeded
         else:
             terminated = fell_over
+
+        # --- LOGGING CUSTOM METRICS ---
+        if not hasattr(self, "extras"): self.extras = {}
+        
+        self.extras["log"] = {
+            # 1. Real Speed (m/s) - averaged across all 4096 robots
+            "Episode/Vel_Linear_X": torch.mean(self.base_lin_vel[:, 0]),
+            
+            # 2. Real Height (m)
+            "Episode/Base_Height": torch.mean(self.root_state[:, 2]),
+            
+            # 3. Smoothness (Action difference) - High number = vibrating motors
+            "Episode/Action_Rate": torch.mean(torch.norm(self.actions - self.last_actions, dim=-1)),
+            
+            # 4. Energy (Torque/Effort estimate)
+            "Episode/Torque_Estimate": torch.mean(torch.norm(self.actions, dim=-1))
+        }
 
         return terminated, time_out
 
