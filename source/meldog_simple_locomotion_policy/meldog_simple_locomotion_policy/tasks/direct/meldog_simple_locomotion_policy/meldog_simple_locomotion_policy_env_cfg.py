@@ -67,8 +67,8 @@ MELDOG_CFG = ArticulationCfg(
             # Add this line:
             saturation_effort=34.895, 
             # These are good starting values, copied from other quadrupeds
-            stiffness=40.0,
-            damping=2.0,
+            stiffness=25.0,
+            damping=2.5,
             velocity_limit=18.9, # From your URDF
         )
     },
@@ -128,14 +128,14 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         class RewScale:
             """Reward scales for the task."""
             # (These are all positive, the reward function will handle signs)
-            lin_vel_xy = 10.0      # track linear velocity
+            lin_vel_xy = 5.0      # track linear velocity
             lin_vel_y = 0.5       # penalty for lateral drift
             ang_vel_z = 0.5       # track angular velocity
             lin_vel_z = 0.2       # penalize z velocity
             ang_vel_xy = 0.05     # penalize roll/pitch velocity
-            dof_pos_limits = 1.0  # penalize joint limits
-            dof_vel = 0.001       # penalize high joint velocity
-            action_rate = 0.01    # penalize jerky actions
+            dof_pos_limits = 0.2  # penalize joint limits
+            dof_vel = 0.005      # penalize high joint velocity
+            action_rate = 0.05    # penalize jerky actions
             termination = 5.0     # penalize dying
             alive = 2.0           # survival bonus
 
@@ -146,7 +146,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             reset_robot_on_joint_limits = False
             reset_robot_on_bad_orientation = True
 
-            max_roll_pitch_rad = 1.0
+            max_roll_pitch_rad = 0.2
 
     # We assign our new custom parameters class to the config
     params: CustomParams = CustomParams()

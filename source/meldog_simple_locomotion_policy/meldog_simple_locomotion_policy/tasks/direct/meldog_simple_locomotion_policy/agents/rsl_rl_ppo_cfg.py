@@ -10,23 +10,26 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 @configclass
 class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 16
-    max_iterations = 500
+    num_steps_per_env = 24  # Increased from 16: Gives PPO more horizon to estimate value
+    max_iterations = 1500   # Increased from 500: 500 is rarely enough for a clean walk
     save_interval = 50
     experiment_name = "Meldog_simple_locomotion"
+    
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=False,
+        actor_obs_normalization=False, # RSL_RL handles norm internally usually, but False is fine if you norm inputs
         critic_obs_normalization=False,
-        actor_hidden_dims=[128, 128, 128],
-        critic_hidden_dims=[128, 128, 128],
-        activation="elu",
+        # A tapered structure captures complex dynamics better than flat [128,128,128]
+        actor_hidden_dims=[512, 256, 128], 
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu", # ELU is smoother than ReLU, better for motors
     )
+    
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
+        entropy_coef=0.01, # Slightly higher initial exploration helps prevent "standing still"
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,

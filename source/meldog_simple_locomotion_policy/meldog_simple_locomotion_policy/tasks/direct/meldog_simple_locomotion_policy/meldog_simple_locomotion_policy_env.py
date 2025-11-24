@@ -241,10 +241,22 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         rew_dof_vel = torch.sum(torch.square(self.joint_vel), dim=-1)
         rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=-1)
         
-        # 5. Penalize joint position limits
-        # (This is a simple version, a more complex one would use the actual limits)
-        rew_dof_pos_limits = torch.sum(torch.square(self.joint_pos - self.default_joint_pos), dim=-1)
-        
+        # 5. Penalize joint position limits (Soft Limits Implementation)
+        # We define a "soft" limit slightly smaller than the hardware limit.
+        # e.g., if range is +/- 1.5, we penalize if it goes beyond +/- 1.2
+
+        # Define a safe range (in radians) from the default position
+        soft_limit_threshold = 1.0  # Allow 1.0 radian deviation before penalizing
+
+        # Calculate deviation from default
+        deviation = torch.abs(self.joint_pos - self.default_joint_pos)
+
+        # Only penalize the part of the deviation that exceeds the threshold
+        violation = torch.maximum(deviation - soft_limit_threshold, torch.tensor(0.0, device=self.device))
+
+        # Square the violation
+        rew_dof_pos_limits = torch.sum(torch.square(violation), dim=-1)
+
         # 6. Survival bonus
         rew_alive = torch.ones_like(rew_lin_vel_xy)
 
