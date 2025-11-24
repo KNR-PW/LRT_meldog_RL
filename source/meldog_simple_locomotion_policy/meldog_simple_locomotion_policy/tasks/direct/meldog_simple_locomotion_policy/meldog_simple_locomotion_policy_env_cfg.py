@@ -146,5 +146,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             reset_robot_on_joint_limits = False
             reset_robot_on_bad_orientation = True
 
+            max_roll_pitch_rad = 1.0
+
     # We assign our new custom parameters class to the config
     params: CustomParams = CustomParams()

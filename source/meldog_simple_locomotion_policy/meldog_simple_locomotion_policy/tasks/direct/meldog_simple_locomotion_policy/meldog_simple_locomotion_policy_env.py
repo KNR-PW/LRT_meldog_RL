@@ -13,13 +13,40 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.scene import InteractiveScene
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import quat_apply_inverse, quat_to_euler_xyz
+from isaaclab.utils.math import quat_apply_inverse
 from isaaclab.sensors import ContactSensor, ContactSensorCfg
 from isaaclab.sim.spawners.lights import DomeLightCfg
 import pdb
 
 from .meldog_simple_locomotion_policy_env_cfg import MeldogSimpleLocomotionPolicyEnvCfg
 
+@torch.jit.script
+def quat_to_euler_xyz(quat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Convert quaternions to Euler angles (XYZ convention).
+    Args:
+        quat: Tensor of shape (..., 4) with (w, x, y, z) layout.
+    Returns:
+        tuple: (roll, pitch, yaw) tensors of shape (...).
+    """
+    # Unbind the quaternion components (w, x, y, z)
+    w, x, y, z = quat.unbind(dim=-1)
+    
+    # -- Roll (x-axis rotation) --
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = torch.atan2(sinr_cosp, cosr_cosp)
+
+    # -- Pitch (y-axis rotation) --
+    sinp = 2 * (w * y - z * x)
+    # Clamp to handle numerical errors
+    pitch = torch.where(torch.abs(sinp) >= 1, torch.sign(sinp) * torch.pi / 2, torch.asin(sinp))
+
+    # -- Yaw (z-axis rotation) --
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = torch.atan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
 
 class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
     """
@@ -251,48 +278,34 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         # Get root state
         root_pos = self.robot.data.root_state_w[:, 0:3]
-        # [NEW] Get orientation (Quaternion)
         root_quat = self.robot.data.root_state_w[:, 3:7]
         
         # a. Terminate if base is too low (fell over)
         base_height = root_pos[:, 2]
-        # We use the default height minus a threshold
         termination_height = self.default_root_state[0, 2] - 0.3
         fell_over = base_height < termination_height
         
-        # [NEW] b. Terminate if orientation is bad (Roll/Pitch too high)
+        # b. Terminate if orientation is bad (Roll/Pitch too high)
         if term_cfg.reset_robot_on_bad_orientation:
-            # Convert quaternion to Euler angles (Roll, Pitch, Yaw)
-            # You must import: from isaaclab.utils.math import quat_to_euler_xyz
+            # Use the correct function name here
             roll, pitch, _ = quat_to_euler_xyz(root_quat)
             
-            # Check if Roll OR Pitch exceeds the threshold (e.g., 1.0 radian)
             bad_orientation = (torch.abs(roll) > term_cfg.max_roll_pitch_rad) | \
                               (torch.abs(pitch) > term_cfg.max_roll_pitch_rad)
             
-            # Add to the failure condition
             fell_over = fell_over | bad_orientation
 
         # c. Terminate if base hits the ground (if configured)
         if term_cfg.reset_robot_on_base_contact:
-            # Access the net forces acting on the base. Shape: (num_envs, num_bodies, 3)
             net_forces = self.base_contact_sensor.data.net_forces_w
-            
-            # Calculate the magnitude of the force. Shape: (num_envs, num_bodies)
-            # We assume the base sensor tracks only 1 body (trunk_link) per environment.
             force_magnitudes = torch.norm(net_forces, dim=-1)
-            
-            # Check if force is non-zero (greater than a small threshold like 1.0 Newton)
-            # We use 'any' to flatten the body dimension -> Shape: (num_envs,)
             base_contact = torch.any(force_magnitudes > 1.0, dim=-1)
-            
             fell_over = fell_over | base_contact
 
         # d. Terminate on joint limits (if configured)
         if term_cfg.reset_robot_on_joint_limits:
-            # A simple check: if any joint is too far from default
             joint_limits_exceeded = torch.any(
-                torch.abs(self.joint_pos - self.default_joint_pos) > 0.5, # 0.5 rad = ~30 deg
+                torch.abs(self.joint_pos - self.default_joint_pos) > 0.5,
                 dim=-1
             )
             terminated = fell_over | joint_limits_exceeded
@@ -303,16 +316,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         if not hasattr(self, "extras"): self.extras = {}
         
         self.extras["log"] = {
-            # 1. Real Speed (m/s) - averaged across all 4096 robots
             "Episode/Vel_Linear_X": torch.mean(self.base_lin_vel[:, 0]),
-            
-            # 2. Real Height (m)
             "Episode/Base_Height": torch.mean(self.root_state[:, 2]),
-            
-            # 3. Smoothness (Action difference) - High number = vibrating motors
             "Episode/Action_Rate": torch.mean(torch.norm(self.actions - self.last_actions, dim=-1)),
-            
-            # 4. Energy (Torque/Effort estimate)
             "Episode/Torque_Estimate": torch.mean(torch.norm(self.actions, dim=-1))
         }
 
