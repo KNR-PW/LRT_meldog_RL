@@ -144,6 +144,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             """Termination conditions for the task."""
             reset_robot_on_base_contact = True
             reset_robot_on_joint_limits = False
+            reset_robot_on_bad_orientation = True
 
     # We assign our new custom parameters class to the config
     params: CustomParams = CustomParams()

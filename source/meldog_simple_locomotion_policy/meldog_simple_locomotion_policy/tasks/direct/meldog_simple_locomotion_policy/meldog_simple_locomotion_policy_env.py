@@ -13,7 +13,7 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.scene import InteractiveScene
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import quat_apply_inverse
+from isaaclab.utils.math import quat_apply_inverse, quat_to_euler_xyz
 from isaaclab.sensors import ContactSensor, ContactSensorCfg
 from isaaclab.sim.spawners.lights import DomeLightCfg
 import pdb
@@ -199,6 +199,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         target_vel_x = self.cfg.params.Commands.Ranges.lin_vel_x[1]
         rew_lin_vel_xy = torch.exp(-torch.square(self.base_lin_vel[:, 0] - target_vel_x))
         
+        # --- NEW: Calculate the penalty term ---
+        # We want y-velocity to be 0. We square it so positive/negative drift are both punished.
+        rew_lin_vel_y = torch.square(self.base_lin_vel[:, 1])
+        
         # 2. Track angular velocity command (zero)
         rew_ang_vel_z = torch.exp(-torch.square(self.base_ang_vel[:, 2]))
         
@@ -220,6 +224,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         # 7. Total Reward
         total_reward = (
             rew_cfg.lin_vel_xy * rew_lin_vel_xy +
+            - rew_cfg.lin_vel_y * rew_lin_vel_y +
             rew_cfg.ang_vel_z * rew_ang_vel_z -
             rew_cfg.lin_vel_z * rew_lin_vel_z -
             rew_cfg.ang_vel_xy * rew_ang_vel_xy -
@@ -246,6 +251,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         # Get root state
         root_pos = self.robot.data.root_state_w[:, 0:3]
+        # [NEW] Get orientation (Quaternion)
+        root_quat = self.robot.data.root_state_w[:, 3:7]
         
         # a. Terminate if base is too low (fell over)
         base_height = root_pos[:, 2]
@@ -253,7 +260,20 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         termination_height = self.default_root_state[0, 2] - 0.3
         fell_over = base_height < termination_height
         
-        # b. Terminate if base hits the ground (if configured)
+        # [NEW] b. Terminate if orientation is bad (Roll/Pitch too high)
+        if term_cfg.reset_robot_on_bad_orientation:
+            # Convert quaternion to Euler angles (Roll, Pitch, Yaw)
+            # You must import: from isaaclab.utils.math import quat_to_euler_xyz
+            roll, pitch, _ = quat_to_euler_xyz(root_quat)
+            
+            # Check if Roll OR Pitch exceeds the threshold (e.g., 1.0 radian)
+            bad_orientation = (torch.abs(roll) > term_cfg.max_roll_pitch_rad) | \
+                              (torch.abs(pitch) > term_cfg.max_roll_pitch_rad)
+            
+            # Add to the failure condition
+            fell_over = fell_over | bad_orientation
+
+        # c. Terminate if base hits the ground (if configured)
         if term_cfg.reset_robot_on_base_contact:
             # Access the net forces acting on the base. Shape: (num_envs, num_bodies, 3)
             net_forces = self.base_contact_sensor.data.net_forces_w
@@ -268,7 +288,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             
             fell_over = fell_over | base_contact
 
-        # c. Terminate on joint limits (if configured)
+        # d. Terminate on joint limits (if configured)
         if term_cfg.reset_robot_on_joint_limits:
             # A simple check: if any joint is too far from default
             joint_limits_exceeded = torch.any(
@@ -297,7 +317,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         }
 
         return terminated, time_out
-
 
     def _reset_idx(self, env_ids: Sequence[int] | None):
         """Reset the environments specified by env_ids."""
