@@ -5,131 +5,246 @@
 
 from __future__ import annotations
 
-import math
 import torch
 from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
+from isaaclab.scene import InteractiveScene
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import sample_uniform
+from isaaclab.utils.math import quat_apply_inverse
+from isaaclab.sensors import ContactSensor, ContactSensorCfg
+from isaaclab.sim.spawners.lights import DomeLightCfg
 
 from .meldog_simple_locomotion_policy_env_cfg import MeldogSimpleLocomotionPolicyEnvCfg
 
+@torch.jit.script
+def quat_to_euler_xyz(quat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Convert quaternions to Euler angles (XYZ convention)."""
+    w, x, y, z = quat.unbind(dim=-1)
+    
+    # Roll
+    sinr_cosp = 2 * (w * x + y * z)
+    cosr_cosp = 1 - 2 * (x * x + y * y)
+    roll = torch.atan2(sinr_cosp, cosr_cosp)
+
+    # Pitch
+    sinp = 2 * (w * y - z * x)
+    pitch = torch.where(torch.abs(sinp) >= 1, torch.sign(sinp) * torch.pi / 2, torch.asin(sinp))
+
+    # Yaw
+    siny_cosp = 2 * (w * z + x * y)
+    cosy_cosp = 1 - 2 * (y * y + z * z)
+    yaw = torch.atan2(siny_cosp, cosy_cosp)
+
+    return roll, pitch, yaw
 
 class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
+    """
+    DirectRLEnv class for the Meldog simple locomotion task.
+    """
     cfg: MeldogSimpleLocomotionPolicyEnvCfg
 
     def __init__(self, cfg: MeldogSimpleLocomotionPolicyEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self._cart_dof_idx, _ = self.robot.find_joints(self.cfg.cart_dof_name)
-        self._pole_dof_idx, _ = self.robot.find_joints(self.cfg.pole_dof_name)
-
+        # -- Robot Data --
+        self.default_joint_pos = self.robot.data.default_joint_pos.clone()
+        self.default_root_state = self.robot.data.default_root_state.clone()
         self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
+        self.root_state = self.robot.data.root_state_w
+        
+        # -- Task-Specific Buffers --
+        self.last_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
+        self.base_lin_vel = torch.zeros(self.num_envs, 3, device=self.device)
+        self.base_ang_vel = torch.zeros(self.num_envs, 3, device=self.device)
+        self.gravity_vec = torch.zeros(self.num_envs, 3, device=self.device)
+        self.commands = torch.zeros(self.num_envs, 3, device=self.device)
+
+        # -- Key Indices --
+        self.base_link_idx, _ = self.robot.find_bodies(self.cfg.params.base_link_name)
+        self.foot_link_indices, _ = self.robot.find_bodies(self.cfg.params.foot_link_names)
+        self.actuated_joint_indices = self.robot.find_joints(self.robot.actuators["all_joints"].cfg.joint_names_expr)[0]
+
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot_cfg)
-        # add ground plane
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
-        # clone and replicate
-        self.scene.clone_environments(copy_from_source=False)
-        # we need to explicitly filter collisions for CPU simulation
-        if self.device == "cpu":
-            self.scene.filter_collisions(global_prim_paths=[])
-        # add articulation to scene
-        self.scene.articulations["robot"] = self.robot
-        # add lights
-        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
+
+        light_cfg = DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
+        
+        self.foot_contact_sensor = ContactSensor(
+            cfg=ContactSensorCfg(
+                prim_path="/World/envs/env_.*/Robot/meldog_core/.*F_link",
+                filter_prim_paths_expr=["/World/ground"]
+            ),
+        )
+
+        self.base_contact_sensor = ContactSensor(
+             cfg=ContactSensorCfg(
+                 prim_path=f"/World/envs/env_.*/Robot/meldog_core/{self.cfg.params.base_link_name}",
+                 filter_prim_paths_expr=["/World/ground"]
+             ),
+         )
+
+        self.scene.clone_environments(copy_from_source=False)
+        self.scene.articulations["robot"] = self.robot
+        self.scene.sensors["foot_contact_sensor"] = self.foot_contact_sensor
+        self.scene.sensors["base_contact_sensor"] = self.base_contact_sensor
+
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self.actions = actions.clone()
-
+        
     def _apply_action(self) -> None:
-        self.robot.set_joint_effort_target(self.actions * self.cfg.action_scale, joint_ids=self._cart_dof_idx)
+        """Apply actions to the robot using position control."""
+        action_scale = 0.5 
+        current_targets = self.default_joint_pos + (self.actions * action_scale)
+        current_targets = torch.clamp(current_targets, -3.14, 3.14)
+        self.robot.set_joint_position_target(current_targets, joint_ids=self.actuated_joint_indices)
 
     def _get_observations(self) -> dict:
-        obs = torch.cat(
-            (
-                self.joint_pos[:, self._pole_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_vel[:, self._pole_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_pos[:, self._cart_dof_idx[0]].unsqueeze(dim=1),
-                self.joint_vel[:, self._cart_dof_idx[0]].unsqueeze(dim=1),
-            ),
-            dim=-1,
-        )
-        observations = {"policy": obs}
-        return observations
-
-    def _get_rewards(self) -> torch.Tensor:
-        total_reward = compute_rewards(
-            self.cfg.rew_scale_alive,
-            self.cfg.rew_scale_terminated,
-            self.cfg.rew_scale_pole_pos,
-            self.cfg.rew_scale_cart_vel,
-            self.cfg.rew_scale_pole_vel,
-            self.joint_pos[:, self._pole_dof_idx[0]],
-            self.joint_vel[:, self._pole_dof_idx[0]],
-            self.joint_pos[:, self._cart_dof_idx[0]],
-            self.joint_vel[:, self._cart_dof_idx[0]],
-            self.reset_terminated,
-        )
-        return total_reward
-
-    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        self.root_state = self.robot.data.root_state_w
+        
+        base_lin_vel_world = self.root_state[:, 7:10]
+        base_ang_vel_world = self.root_state[:, 10:13]
+        base_quat = self.root_state[:, 3:7]
+        
+        # Transform velocities and gravity to base frame
+        self.base_lin_vel = quat_apply_inverse(base_quat, base_lin_vel_world)
+        self.base_ang_vel = quat_apply_inverse(base_quat, base_ang_vel_world)
+        
+        gravity_world = torch.tensor([0.0, 0.0, -1.0], device=self.device).repeat(self.num_envs, 1)
+        self.gravity_vec = quat_apply_inverse(base_quat, gravity_world)
+        
         self.joint_pos = self.robot.data.joint_pos
         self.joint_vel = self.robot.data.joint_vel
+        
+        obs_buf = torch.cat([
+            self.base_lin_vel,
+            self.base_ang_vel,
+            self.gravity_vec,
+            self.joint_pos,
+            self.joint_vel,
+            self.last_actions
+        ], dim=-1)
 
+        return {"policy": obs_buf}
+
+
+    def _get_rewards(self) -> torch.Tensor:
+        rew_cfg = self.cfg.params.RewScale
+        
+        # 1. Track linear velocity (Target: 1.0 m/s x-vel, 0.0 y-vel)
+        target_vel_x = self.cfg.params.Commands.Ranges.lin_vel_x[1]
+        rew_lin_vel_xy = torch.exp(-torch.square(self.base_lin_vel[:, 0] - target_vel_x))
+        rew_lin_vel_y = torch.square(self.base_lin_vel[:, 1])
+        
+        # 2. Track angular velocity (Target: 0.0)
+        rew_ang_vel_z = torch.exp(-torch.square(self.base_ang_vel[:, 2]))
+        
+        # 3. Penalties
+        rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2])
+        rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, 0:2]), dim=-1)
+        rew_dof_vel = torch.sum(torch.square(self.joint_vel), dim=-1)
+        rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=-1)
+        
+        # 4. Joint Limits (Soft Limits)
+        soft_limit_threshold = 1.0 
+        deviation = torch.abs(self.joint_pos - self.default_joint_pos)
+        violation = torch.maximum(deviation - soft_limit_threshold, torch.tensor(0.0, device=self.device))
+        rew_dof_pos_limits = torch.sum(torch.square(violation), dim=-1)
+
+        # 5. Survival
+        rew_alive = torch.ones_like(rew_lin_vel_xy)
+
+        total_reward = (
+            rew_cfg.lin_vel_xy * rew_lin_vel_xy +
+            - rew_cfg.lin_vel_y * rew_lin_vel_y +
+            rew_cfg.ang_vel_z * rew_ang_vel_z -
+            rew_cfg.lin_vel_z * rew_lin_vel_z -
+            rew_cfg.ang_vel_xy * rew_ang_vel_xy -
+            rew_cfg.dof_vel * rew_dof_vel -
+            rew_cfg.action_rate * rew_action_rate -
+            rew_cfg.dof_pos_limits * rew_dof_pos_limits +
+            rew_cfg.alive * rew_alive
+        )
+
+        total_reward = torch.where(self.reset_terminated, -rew_cfg.termination, total_reward)
+
+        return total_reward
+
+
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
+        term_cfg = self.cfg.params.Terminations
+        
+        # -- Timeouts --
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        out_of_bounds = torch.any(torch.abs(self.joint_pos[:, self._cart_dof_idx]) > self.cfg.max_cart_pos, dim=1)
-        out_of_bounds = out_of_bounds | torch.any(torch.abs(self.joint_pos[:, self._pole_dof_idx]) > math.pi / 2, dim=1)
-        return out_of_bounds, time_out
+
+        # -- Terminations --
+        root_pos = self.robot.data.root_state_w[:, 0:3]
+        root_quat = self.robot.data.root_state_w[:, 3:7]
+        
+        # Check height
+        base_height = root_pos[:, 2]
+        termination_height = self.default_root_state[0, 2] - 0.3
+        fell_over = base_height < termination_height
+        
+        # Check orientation
+        if term_cfg.reset_robot_on_bad_orientation:
+            roll, pitch, _ = quat_to_euler_xyz(root_quat)
+            bad_orientation = (torch.abs(roll) > term_cfg.max_roll_pitch_rad) | \
+                              (torch.abs(pitch) > term_cfg.max_roll_pitch_rad)
+            fell_over = fell_over | bad_orientation
+
+        # Check base contact
+        if term_cfg.reset_robot_on_base_contact:
+            net_forces = self.base_contact_sensor.data.net_forces_w
+            force_magnitudes = torch.norm(net_forces, dim=-1)
+            base_contact = torch.any(force_magnitudes > 1.0, dim=-1)
+            fell_over = fell_over | base_contact
+
+        # Check joint limits
+        if term_cfg.reset_robot_on_joint_limits:
+            joint_limits_exceeded = torch.any(
+                torch.abs(self.joint_pos - self.default_joint_pos) > 0.5,
+                dim=-1
+            )
+            terminated = fell_over | joint_limits_exceeded
+        else:
+            terminated = fell_over
+
+        # -- Logging --
+        if not hasattr(self, "extras"): self.extras = {}
+        
+        self.extras["log"] = {
+            "Episode/Vel_Linear_X": torch.mean(self.base_lin_vel[:, 0]),
+            "Episode/Base_Height": torch.mean(self.root_state[:, 2]),
+            "Episode/Action_Rate": torch.mean(torch.norm(self.actions - self.last_actions, dim=-1)),
+            "Episode/Torque_Estimate": torch.mean(torch.norm(self.actions, dim=-1))
+        }
+
+        return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = self.robot._ALL_INDICES
-        super()._reset_idx(env_ids)
+        
+        # Reset state
+        root_state = self.default_root_state[env_ids]
+        root_state[:, :3] += self.scene.env_origins[env_ids]
+        
+        joint_pos = self.default_joint_pos[env_ids]
+        joint_vel = torch.zeros_like(self.joint_vel[env_ids])
 
-        joint_pos = self.robot.data.default_joint_pos[env_ids]
-        joint_pos[:, self._pole_dof_idx] += sample_uniform(
-            self.cfg.initial_pole_angle_range[0] * math.pi,
-            self.cfg.initial_pole_angle_range[1] * math.pi,
-            joint_pos[:, self._pole_dof_idx].shape,
-            joint_pos.device,
-        )
-        joint_vel = self.robot.data.default_joint_vel[env_ids]
-
-        default_root_state = self.robot.data.default_root_state[env_ids]
-        default_root_state[:, :3] += self.scene.env_origins[env_ids]
-
-        self.joint_pos[env_ids] = joint_pos
-        self.joint_vel[env_ids] = joint_vel
-
-        self.robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
-        self.robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
+        self.robot.write_root_state_to_sim(root_state, env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
+        # Reset buffers
+        self.last_actions[env_ids] = 0.0
+        self.commands[env_ids] = 0.0
 
-@torch.jit.script
-def compute_rewards(
-    rew_scale_alive: float,
-    rew_scale_terminated: float,
-    rew_scale_pole_pos: float,
-    rew_scale_cart_vel: float,
-    rew_scale_pole_vel: float,
-    pole_pos: torch.Tensor,
-    pole_vel: torch.Tensor,
-    cart_pos: torch.Tensor,
-    cart_vel: torch.Tensor,
-    reset_terminated: torch.Tensor,
-):
-    rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
-    rew_termination = rew_scale_terminated * reset_terminated.float()
-    rew_pole_pos = rew_scale_pole_pos * torch.sum(torch.square(pole_pos).unsqueeze(dim=1), dim=-1)
-    rew_cart_vel = rew_scale_cart_vel * torch.sum(torch.abs(cart_vel).unsqueeze(dim=1), dim=-1)
-    rew_pole_vel = rew_scale_pole_vel * torch.sum(torch.abs(pole_vel).unsqueeze(dim=1), dim=-1)
-    total_reward = rew_alive + rew_termination + rew_pole_pos + rew_cart_vel + rew_pole_vel
-    return total_reward
+        super()._reset_idx(env_ids)
