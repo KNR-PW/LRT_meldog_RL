@@ -10,6 +10,8 @@ from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.assets import ArticulationCfg
+from isaaclab.markers import VisualizationMarkersCfg 
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR 
 
 ##
 # Robot Configuration
@@ -76,7 +78,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     
     # spaces
     action_space = 12
-    observation_space = 45 # 3 (lin) + 3 (ang) + 3 (grav) + 12 (pos) + 12 (vel) + 12 (prev act)
+    observation_space = 48 
     state_space = 0
 
     # simulation
@@ -88,6 +90,29 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
+    # Markers
+    lin_vel_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/LinArrow",
+        markers={
+            "arrow": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                scale=(0.2, 0.2, 0.5),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)), # RED
+            ),
+        },
+    )
+    
+    ang_vel_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/AngArrow",
+        markers={
+            "arrow": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                scale=(0.2, 0.2, 0.5),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)), # GREEN
+            ),
+        },
+    )
+
     ##
     # Custom Parameters
     ##
@@ -95,21 +120,26 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     @configclass
     class CustomParams:
         """Parameters for the Meldog locomotion task."""
+        # --- Visualization Toggle
+        debug_vis = True  # [!NEW] Set to False to disable arrows/text
+
         # --- Robot Names
         base_link_name = "trunk_link"
         foot_link_names = ["LFF_link", "RFF_link", "LRF_link", "RRF_link"]
         
-        # --- Command
+        # --- Command Logic
+        command_resampling_time = 4.0
+        
         class Commands:
             class Ranges:
                 lin_vel_x = [-1.0, 1.0]
-                lin_vel_y = [-1.0, 1.0]
+                lin_vel_y = [-0.6, 0.6] 
                 ang_vel_z = [-1.0, 1.0]
             
         # --- Reward Scales
         class RewScale:
             lin_vel_xy = 5.0
-            lin_vel_y = 0.5
+            lin_vel_y = 0.0 
             ang_vel_z = 0.5
             lin_vel_z = 0.2
             ang_vel_xy = 0.05

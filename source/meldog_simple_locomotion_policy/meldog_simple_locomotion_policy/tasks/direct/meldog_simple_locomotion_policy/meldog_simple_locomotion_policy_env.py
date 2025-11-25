@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import torch
+# [!CHANGED] Removed 'import omni.debugdraw' to fix headless crash
 from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
@@ -13,9 +14,10 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.scene import InteractiveScene
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import quat_apply_inverse
+from isaaclab.utils.math import quat_apply, quat_apply_inverse, quat_from_angle_axis
 from isaaclab.sensors import ContactSensor, ContactSensorCfg
 from isaaclab.sim.spawners.lights import DomeLightCfg
+from isaaclab.markers import VisualizationMarkers
 
 from .meldog_simple_locomotion_policy_env_cfg import MeldogSimpleLocomotionPolicyEnvCfg
 
@@ -48,6 +50,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
     def __init__(self, cfg: MeldogSimpleLocomotionPolicyEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+        
+        # [!CHANGED] Removed self._debug_draw initialization
 
         # -- Robot Data --
         self.default_joint_pos = self.robot.data.default_joint_pos.clone()
@@ -61,7 +65,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self.base_lin_vel = torch.zeros(self.num_envs, 3, device=self.device)
         self.base_ang_vel = torch.zeros(self.num_envs, 3, device=self.device)
         self.gravity_vec = torch.zeros(self.num_envs, 3, device=self.device)
-        self.commands = torch.zeros(self.num_envs, 3, device=self.device)
+        
+        # Command buffers and Timers
+        self.commands = torch.zeros(self.num_envs, 3, device=self.device) # x, y, ang_z
+        self.command_timer = torch.zeros(self.num_envs, device=self.device)
 
         # -- Key Indices --
         self.base_link_idx, _ = self.robot.find_bodies(self.cfg.params.base_link_name)
@@ -90,6 +97,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
              ),
          )
 
+        # Initialize separate visualizers
+        self.lin_visualizer = VisualizationMarkers(self.cfg.lin_vel_marker)
+        self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
+
         self.scene.clone_environments(copy_from_source=False)
         self.scene.articulations["robot"] = self.robot
         self.scene.sensors["foot_contact_sensor"] = self.foot_contact_sensor
@@ -99,6 +110,72 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self.actions = actions.clone()
         
+        # --- Handle Command Resampling ---
+        dt = self.cfg.sim.dt * self.cfg.decimation
+        self.command_timer += dt
+        
+        resample_ids = (self.command_timer >= self.cfg.params.command_resampling_time).nonzero(as_tuple=False).flatten()
+        if len(resample_ids) > 0:
+            self._resample_commands(resample_ids)
+            self.command_timer[resample_ids] = 0.0
+
+        # --- Update Visualization (Only if enabled) ---
+        if self.cfg.params.debug_vis:
+            robot_pos = self.robot.data.root_pos_w
+            robot_quat = self.robot.data.root_quat_w
+            
+            # 1. Visualize Linear Velocity (Red Arrow)
+            # ---------------------------------------
+            cmd_lin_local = torch.zeros(self.num_envs, 3, device=self.device)
+            cmd_lin_local[:, 0] = self.commands[:, 0] # vx
+            cmd_lin_local[:, 1] = self.commands[:, 1] # vy
+            
+            cmd_lin_world = quat_apply(robot_quat, cmd_lin_local)
+            
+            yaw_lin = torch.atan2(cmd_lin_world[:, 1], cmd_lin_world[:, 0])
+            zeros = torch.zeros_like(yaw_lin)
+            axis_z = torch.stack([zeros, zeros, torch.ones_like(yaw_lin)], dim=-1)
+            lin_arrow_quat = quat_from_angle_axis(yaw_lin, axis_z)
+
+            # Calculate Dynamic Scale for Linear Arrow
+            lin_mag = torch.norm(self.commands[:, :2], dim=1)
+            lin_arrow_scale = torch.zeros(self.num_envs, 3, device=self.device)
+            lin_arrow_scale[:, 0] = torch.clamp(lin_mag, min=0.1) 
+            lin_arrow_scale[:, 1] = 0.5  # Width (Thicker)
+            lin_arrow_scale[:, 2] = 0.5  # Height (Thicker)
+            
+            # 2. Visualize Angular Velocity (Green Arrow)
+            # ---------------------------------------
+            ang_cmd_z = self.commands[:, 2]
+            cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
+            cmd_ang_local[:, 1] = ang_cmd_z 
+            
+            cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
+            
+            yaw_ang = torch.atan2(cmd_ang_world[:, 1], cmd_ang_world[:, 0])
+            ang_arrow_quat = quat_from_angle_axis(yaw_ang, axis_z)
+
+            # Calculate Dynamic Scale for Angular Arrow
+            ang_mag = torch.abs(ang_cmd_z)
+            ang_arrow_scale = torch.zeros(self.num_envs, 3, device=self.device)
+            ang_arrow_scale[:, 0] = torch.clamp(ang_mag, min=0.1) * 1.5 
+            ang_arrow_scale[:, 1] = 0.5  # Width (Thicker)
+            ang_arrow_scale[:, 2] = 0.5  # Height (Thicker)
+
+            # 3. Apply Visualization
+            # ----------------------
+            self.lin_visualizer.visualize(
+                robot_pos + torch.tensor([0,0,1.0], device=self.device), 
+                lin_arrow_quat,
+                scales=lin_arrow_scale
+            )
+            
+            self.ang_visualizer.visualize(
+                robot_pos + torch.tensor([0,0,1.2], device=self.device), 
+                ang_arrow_quat,
+                scales=ang_arrow_scale
+            )
+         
     def _apply_action(self) -> None:
         """Apply actions to the robot using position control."""
         action_scale = 0.5 
@@ -129,22 +206,25 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             self.gravity_vec,
             self.joint_pos,
             self.joint_vel,
-            self.last_actions
+            self.last_actions,
+            self.commands
         ], dim=-1)
 
-        return {"policy": obs_buf}
+        return {"policy": obs_buf, "critic": obs_buf}
 
 
     def _get_rewards(self) -> torch.Tensor:
         rew_cfg = self.cfg.params.RewScale
         
-        # 1. Track linear velocity (Target: 1.0 m/s x-vel, 0.0 y-vel)
-        target_vel_x = self.cfg.params.Commands.Ranges.lin_vel_x[1]
-        rew_lin_vel_xy = torch.exp(-torch.square(self.base_lin_vel[:, 0] - target_vel_x))
-        rew_lin_vel_y = torch.square(self.base_lin_vel[:, 1])
+        # Reward Calculation based on Dynamic Commands
         
-        # 2. Track angular velocity (Target: 0.0)
-        rew_ang_vel_z = torch.exp(-torch.square(self.base_ang_vel[:, 2]))
+        # 1. Track linear velocity (XY)
+        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+        rew_lin_vel_xy = torch.exp(-lin_vel_error / 0.25)
+        
+        # 2. Track angular velocity Z
+        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        rew_ang_vel_z = torch.exp(-ang_vel_error / 0.25)
         
         # 3. Penalties
         rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2])
@@ -153,7 +233,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=-1)
         
         # 4. Joint Limits (Soft Limits)
-        soft_limit_threshold = 1.0 
+        soft_limit_threshold = 0.0 
         deviation = torch.abs(self.joint_pos - self.default_joint_pos)
         violation = torch.maximum(deviation - soft_limit_threshold, torch.tensor(0.0, device=self.device))
         rew_dof_pos_limits = torch.sum(torch.square(violation), dim=-1)
@@ -163,7 +243,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
         total_reward = (
             rew_cfg.lin_vel_xy * rew_lin_vel_xy +
-            - rew_cfg.lin_vel_y * rew_lin_vel_y +
             rew_cfg.ang_vel_z * rew_ang_vel_z -
             rew_cfg.lin_vel_z * rew_lin_vel_z -
             rew_cfg.ang_vel_xy * rew_ang_vel_xy -
@@ -176,6 +255,17 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         total_reward = torch.where(self.reset_terminated, -rew_cfg.termination, total_reward)
 
         return total_reward
+
+    def _resample_commands(self, env_ids: Sequence[int]):
+        """Randomly sample commands for the specified environments."""
+        r = self.cfg.params.Commands.Ranges
+        
+        # Sample x velocity
+        self.commands[env_ids, 0] = torch.rand(len(env_ids), device=self.device) * (r.lin_vel_x[1] - r.lin_vel_x[0]) + r.lin_vel_x[0]
+        # Sample y velocity
+        self.commands[env_ids, 1] = torch.rand(len(env_ids), device=self.device) * (r.lin_vel_y[1] - r.lin_vel_y[0]) + r.lin_vel_y[0]
+        # Sample ang z velocity
+        self.commands[env_ids, 2] = torch.rand(len(env_ids), device=self.device) * (r.ang_vel_z[1] - r.ang_vel_z[0]) + r.ang_vel_z[0]
 
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -245,6 +335,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
         # Reset buffers
         self.last_actions[env_ids] = 0.0
-        self.commands[env_ids] = 0.0
-
+        
+        # Reset commands and timers
+        self._resample_commands(env_ids)
+        self.command_timer[env_ids] = 0.0
+        
         super()._reset_idx(env_ids)
