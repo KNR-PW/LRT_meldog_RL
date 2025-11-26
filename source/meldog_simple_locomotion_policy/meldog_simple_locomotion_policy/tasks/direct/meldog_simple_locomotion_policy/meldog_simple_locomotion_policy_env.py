@@ -86,16 +86,16 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self.foot_contact_sensor = ContactSensor(
             cfg=ContactSensorCfg(
                 prim_path="/World/envs/env_.*/Robot/meldog_core/.*F_link",
-                filter_prim_paths_expr=["/World/ground"]
+                # filter_prim_paths_expr=["/World/ground"] 
             ),
         )
 
         self.base_contact_sensor = ContactSensor(
-             cfg=ContactSensorCfg(
-                 prim_path=f"/World/envs/env_.*/Robot/meldog_core/{self.cfg.params.base_link_name}",
-                 filter_prim_paths_expr=["/World/ground"]
-             ),
-         )
+            cfg=ContactSensorCfg(
+                prim_path=f"/World/envs/env_.*/Robot/meldog_core/{self.cfg.params.base_link_name}",
+                # filter_prim_paths_expr=["/World/ground"]
+            ),
+        )
 
         # Initialize separate visualizers
         self.lin_visualizer = VisualizationMarkers(self.cfg.lin_vel_marker)
@@ -307,12 +307,26 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         else:
             terminated = fell_over
 
-        # -- Logging --
+        # -- Logging (The Important Part) --
         if not hasattr(self, "extras"): self.extras = {}
         
+        # Calculate errors (Command vs Actual)
+        # We use absolute error (|cmd - val|) because it's easier to read than squared error
+        lin_vel_error = torch.abs(self.commands[:, :2] - self.base_lin_vel[:, :2])
+        ang_vel_error = torch.abs(self.commands[:, 2] - self.base_ang_vel[:, 2])
+        
         self.extras["log"] = {
-            "Episode/Vel_Linear_X": torch.mean(self.base_lin_vel[:, 0]),
+            # -- Tracking Errors (LOWER IS BETTER) --
+            # If these are near 0.0, the robot is doing exactly what you say.
+            "Episode/Error_Lin_Vel_X": torch.mean(lin_vel_error[:, 0]),   # Forward/Back accuracy
+            "Episode/Error_Lin_Vel_Y": torch.mean(lin_vel_error[:, 1]),   # Sideways accuracy
+            "Episode/Error_Ang_Vel_Z": torch.mean(ang_vel_error),         # Turning accuracy (!)
+            
+            # -- Stability Metrics --
+            "Episode/Vel_Ang_XY_Stability": torch.mean(torch.norm(self.base_ang_vel[:, :2], dim=-1)),
             "Episode/Base_Height": torch.mean(self.root_state[:, 2]),
+            
+            # -- Effort Metrics --
             "Episode/Action_Rate": torch.mean(torch.norm(self.actions - self.last_actions, dim=-1)),
             "Episode/Torque_Estimate": torch.mean(torch.norm(self.actions, dim=-1))
         }

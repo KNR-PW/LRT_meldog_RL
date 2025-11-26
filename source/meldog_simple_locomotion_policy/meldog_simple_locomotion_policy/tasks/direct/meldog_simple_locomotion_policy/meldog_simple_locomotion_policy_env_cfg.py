@@ -134,13 +134,13 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             class Ranges:
                 lin_vel_x = [-1.0, 1.0]
                 lin_vel_y = [-0.6, 0.6] 
-                ang_vel_z = [-1.0, 1.0]
+                ang_vel_z = [-0.5, 0.5]
             
         # --- Reward Scales
         class RewScale:
             lin_vel_xy = 5.0
             lin_vel_y = 0.0 
-            ang_vel_z = 0.5
+            ang_vel_z = 3.0
             lin_vel_z = 0.2
             ang_vel_xy = 0.05
             dof_pos_limits = 0.2
