@@ -1,25 +1,31 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import DCMotorCfg
-from isaaclab.envs import DirectRLEnvCfg
-from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sim import SimulationCfg
-from isaaclab.utils import configclass
 from isaaclab.assets import ArticulationCfg
-from isaaclab.markers import VisualizationMarkersCfg 
+from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import SceneEntityCfg
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sim import SimulationCfg
+from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR 
 
-##
-# Robot Configuration
-##
+# Imports for Visualization
+from isaaclab.markers import VisualizationMarkersCfg 
 
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
+
+##
+# Robot Definition
+##
 MELDOG_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path="/home/ubuntu/Downloads/Meldog-1.4.usd",
+        usd_path="/home/ubuntu/Downloads/Meldog-1.4-no-ground-plane.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -31,66 +37,143 @@ MELDOG_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=True, 
-            solver_position_iteration_count=4, 
+            enabled_self_collisions=False, # Disabled to prevent spawn explosion
+            solver_position_iteration_count=8, # Increased for stable stiff motors
             solver_velocity_iteration_count=0
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.55),
+        # Safe spawn height (positive Z)
+        pos=(0.0, 0.0, -0.12), 
+        
+        # Taller Stance to prevent immediate collapse
         joint_pos={
-            "LFT_joint": 0.0,
-            "LFH_joint": -0.8,
-            "LFK_joint": 1.6,
-            "RFT_joint": 0.0,
-            "RFH_joint": -0.8,
-            "RFK_joint": 1.6,
-            "LRT_joint": 0.0,
-            "LRH_joint": -0.8,
-            "LRK_joint": 1.6,
-            "RRT_joint": 0.0,
-            "RRH_joint": -0.8,
-            "RRK_joint": 1.6,
+            "LFT_joint": 0.0, "LFH_joint": -0.6, "LFK_joint": 1.3,
+            "RFT_joint": 0.0, "RFH_joint": -0.6, "RFK_joint": 1.3,
+            "LRT_joint": 0.0, "LRH_joint": -0.6, "LRK_joint": 1.3,
+            "RRT_joint": 0.0, "RRH_joint": -0.6, "RRK_joint": 1.3,
         },
         joint_vel={".*": 0.0},
     ),
     actuators={
         "all_joints": DCMotorCfg(
             joint_names_expr=[".*"],
-            effort_limit=34.895,
-            saturation_effort=34.895, 
-            stiffness=25.0,
-            damping=2.5,
+            # High torque to lift the body (35Nm was too weak)
+            effort_limit=35.0, 
+            saturation_effort=35.0, 
+            
+            # High Stiffness/Damping to stabilize the "Magic Carpet" fix
+            stiffness=40.0,
+            damping=4.0,
+            
             velocity_limit=18.9,
         )
     },
 )
 
 ##
-# Environment Configuration
+# Domain Randomization
 ##
+@configclass
+class EventCfg:
+    """Configuration for randomization."""
+    physics_material = EventTerm(
+        func=mdp.randomize_rigid_body_material,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "static_friction_range": (0.6, 1.25), 
+            "dynamic_friction_range": (0.6, 1.0),
+            "restitution_range": (0.0, 0.0),
+            "num_buckets": 64,
+        },
+    )
 
+    # Disabled Mass Randomization temporarily to ensure stable physics first
+    # add_base_mass = EventTerm(
+    #     func=mdp.randomize_rigid_body_mass,
+    #     mode="startup",
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
+    #         "mass_distribution_params": (-2.0, 3.0),
+    #         "operation": "add",
+    #     },
+    # )
+
+##
+# Env Config
+##
 @configclass
 class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 2
     episode_length_s = 20.0
-    
-    # spaces
+    decimation = 4
+    action_scale = 0.5
     action_space = 12
-    observation_space = 48 
+    observation_space = 235
     state_space = 0
+    debug_vis = True 
 
     # simulation
-    sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
+    sim: SimulationCfg = SimulationCfg(
+        dt=1 / 200, 
+        render_interval=decimation,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+            restitution=0.0,
+        ),
+    )
 
-    # robot
-    robot_cfg: ArticulationCfg = MELDOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    # Terrain - Keeping Rough Terrain
+    terrain = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=ROUGH_TERRAINS_CFG,
+        max_init_terrain_level=9,
+        collision_group=-1,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            friction_combine_mode="multiply",
+            restitution_combine_mode="multiply",
+            static_friction=1.0,
+            dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
+        ),
+        debug_vis=False,
+    )
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
-    # Markers
+    # events
+    events: EventCfg = EventCfg()
+
+    # robot
+    robot: ArticulationCfg = MELDOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    
+    # sensors
+    contact_sensor: ContactSensorCfg = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/meldog_core/.*link", 
+        history_length=3, 
+        update_period=0.005, 
+        track_air_time=True
+    )
+
+    height_scanner = RayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+        ray_alignment="yaw",
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+    )
+
+    # Visualization Markers
     lin_vel_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
         prim_path="/Visuals/LinArrow",
         markers={
@@ -113,47 +196,20 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         },
     )
 
-    ##
-    # Custom Parameters
-    ##
+    # Reward Scales
+    # [!CHANGED] Added Alive Reward to prevent suicide
+    alive_reward_scale = 1.5 
+
+    lin_vel_reward_scale = 1.0
+    yaw_rate_reward_scale = 0.5
+    z_vel_reward_scale = -2.0
+    ang_vel_reward_scale = -0.05
     
-    @configclass
-    class CustomParams:
-        """Parameters for the Meldog locomotion task."""
-        # --- Visualization Toggle
-        debug_vis = True  # [!NEW] Set to False to disable arrows/text
-
-        # --- Robot Names
-        base_link_name = "trunk_link"
-        foot_link_names = ["LFF_link", "RFF_link", "LRF_link", "RRF_link"]
-        
-        # --- Command Logic
-        command_resampling_time = 4.0
-        
-        class Commands:
-            class Ranges:
-                lin_vel_x = [-1.0, 1.0]
-                lin_vel_y = [-0.6, 0.6] 
-                ang_vel_z = [-0.5, 0.5]
-            
-        # --- Reward Scales
-        class RewScale:
-            lin_vel_xy = 5.0
-            lin_vel_y = 0.0 
-            ang_vel_z = 3.0
-            lin_vel_z = 0.2
-            ang_vel_xy = 0.05
-            dof_pos_limits = 0.2
-            dof_vel = 0.005
-            action_rate = 0.05
-            termination = 5.0
-            alive = 2.0
-
-        # --- Termination Conditions
-        class Terminations:
-            reset_robot_on_base_contact = True
-            reset_robot_on_joint_limits = False
-            reset_robot_on_bad_orientation = True
-            max_roll_pitch_rad = 0.2
-
-    params: CustomParams = CustomParams()
+    # [!CHANGED] Reduced penalties to stop robot from freezing/dying
+    joint_torque_reward_scale = -2.5e-5
+    joint_accel_reward_scale = -2.5e-7
+    action_rate_reward_scale = -0.01 
+    
+    feet_air_time_reward_scale = 0.5
+    undesired_contact_reward_scale = -1.0
+    flat_orientation_reward_scale = -0.001

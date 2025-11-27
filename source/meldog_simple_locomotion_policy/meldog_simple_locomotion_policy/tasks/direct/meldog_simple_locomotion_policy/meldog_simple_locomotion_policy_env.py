@@ -1,135 +1,93 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # SPDX-License-Identifier: BSD-3-Clause
 
 from __future__ import annotations
 
+import gymnasium as gym
 import torch
-# [!CHANGED] Removed 'import omni.debugdraw' to fix headless crash
-from collections.abc import Sequence
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
-from isaaclab.scene import InteractiveScene
-from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import quat_apply, quat_apply_inverse, quat_from_angle_axis
-from isaaclab.sensors import ContactSensor, ContactSensorCfg
-from isaaclab.sim.spawners.lights import DomeLightCfg
+from isaaclab.sensors import ContactSensor, RayCaster
+
+# Visualization Imports
 from isaaclab.markers import VisualizationMarkers
+from isaaclab.utils.math import quat_apply, quat_from_angle_axis
 
 from .meldog_simple_locomotion_policy_env_cfg import MeldogSimpleLocomotionPolicyEnvCfg
 
-@torch.jit.script
-def quat_to_euler_xyz(quat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Convert quaternions to Euler angles (XYZ convention)."""
-    w, x, y, z = quat.unbind(dim=-1)
-    
-    # Roll
-    sinr_cosp = 2 * (w * x + y * z)
-    cosr_cosp = 1 - 2 * (x * x + y * y)
-    roll = torch.atan2(sinr_cosp, cosr_cosp)
-
-    # Pitch
-    sinp = 2 * (w * y - z * x)
-    pitch = torch.where(torch.abs(sinp) >= 1, torch.sign(sinp) * torch.pi / 2, torch.asin(sinp))
-
-    # Yaw
-    siny_cosp = 2 * (w * z + x * y)
-    cosy_cosp = 1 - 2 * (y * y + z * z)
-    yaw = torch.atan2(siny_cosp, cosy_cosp)
-
-    return roll, pitch, yaw
-
 class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
-    """
-    DirectRLEnv class for the Meldog simple locomotion task.
-    """
     cfg: MeldogSimpleLocomotionPolicyEnvCfg
 
     def __init__(self, cfg: MeldogSimpleLocomotionPolicyEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-        
-        # [!CHANGED] Removed self._debug_draw initialization
 
-        # -- Robot Data --
-        self.default_joint_pos = self.robot.data.default_joint_pos.clone()
-        self.default_root_state = self.robot.data.default_root_state.clone()
-        self.joint_pos = self.robot.data.joint_pos
-        self.joint_vel = self.robot.data.joint_vel
-        self.root_state = self.robot.data.root_state_w
-        
-        # -- Task-Specific Buffers --
-        self.last_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
-        self.base_lin_vel = torch.zeros(self.num_envs, 3, device=self.device)
-        self.base_ang_vel = torch.zeros(self.num_envs, 3, device=self.device)
-        self.gravity_vec = torch.zeros(self.num_envs, 3, device=self.device)
-        
-        # Command buffers and Timers
-        self.commands = torch.zeros(self.num_envs, 3, device=self.device) # x, y, ang_z
-        self.command_timer = torch.zeros(self.num_envs, device=self.device)
+        # Buffers
+        self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # -- Key Indices --
-        self.base_link_idx, _ = self.robot.find_bodies(self.cfg.params.base_link_name)
-        self.foot_link_indices, _ = self.robot.find_bodies(self.cfg.params.foot_link_names)
-        self.actuated_joint_indices = self.robot.find_joints(self.robot.actuators["all_joints"].cfg.joint_names_expr)[0]
+        # Reward Logging
+        self._episode_sums = {
+            key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            for key in [
+                "track_lin_vel_xy_exp", "track_ang_vel_z_exp", "lin_vel_z_l2",
+                "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2", "action_rate_l2",
+                "feet_air_time", "undesired_contacts", "flat_orientation_l2",
+                "alive", # [!NEW] Added alive log
+            ]
+        }
 
+        # Body IDs
+        self._base_id, _ = self._contact_sensor.find_bodies("trunk_link")
+        self._feet_ids, _ = self._contact_sensor.find_bodies(".*F_link")
+        self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*H_link")
 
     def _setup_scene(self):
-        self.robot = Articulation(self.cfg.robot_cfg)
-        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg())
-
-        light_cfg = DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
+        # 1. Robot Setup
+        self._robot = Articulation(self.cfg.robot)
+        self.scene.articulations["robot"] = self._robot
+        
+        # 2. Sensors Setup
+        self._contact_sensor = ContactSensor(self.cfg.contact_sensor)
+        self.scene.sensors["contact_sensor"] = self._contact_sensor
+        
+        self._height_scanner = RayCaster(self.cfg.height_scanner)
+        self.scene.sensors["height_scanner"] = self._height_scanner
+        
+        # 3. Terrain Setup
+        self.cfg.terrain.num_envs = self.scene.cfg.num_envs
+        self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
+        self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
+        
+        # 4. Clone Envs & Filter Collisions
+        self.scene.clone_environments(copy_from_source=False)
+        self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
+        
+        # 5. Lights
+        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
         
-        self.foot_contact_sensor = ContactSensor(
-            cfg=ContactSensorCfg(
-                prim_path="/World/envs/env_.*/Robot/meldog_core/.*F_link",
-                # filter_prim_paths_expr=["/World/ground"] 
-            ),
-        )
-
-        self.base_contact_sensor = ContactSensor(
-            cfg=ContactSensorCfg(
-                prim_path=f"/World/envs/env_.*/Robot/meldog_core/{self.cfg.params.base_link_name}",
-                # filter_prim_paths_expr=["/World/ground"]
-            ),
-        )
-
-        # Initialize separate visualizers
+        # Initialize Visualizers
         self.lin_visualizer = VisualizationMarkers(self.cfg.lin_vel_marker)
         self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
 
-        self.scene.clone_environments(copy_from_source=False)
-        self.scene.articulations["robot"] = self.robot
-        self.scene.sensors["foot_contact_sensor"] = self.foot_contact_sensor
-        self.scene.sensors["base_contact_sensor"] = self.base_contact_sensor
 
+    def _pre_physics_step(self, actions: torch.Tensor):
+        self._actions = actions.clone()
+        # PD Control
+        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
-    def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        self.actions = actions.clone()
-        
-        # --- Handle Command Resampling ---
-        dt = self.cfg.sim.dt * self.cfg.decimation
-        self.command_timer += dt
-        
-        resample_ids = (self.command_timer >= self.cfg.params.command_resampling_time).nonzero(as_tuple=False).flatten()
-        if len(resample_ids) > 0:
-            self._resample_commands(resample_ids)
-            self.command_timer[resample_ids] = 0.0
-
-        # --- Update Visualization (Only if enabled) ---
-        if self.cfg.params.debug_vis:
-            robot_pos = self.robot.data.root_pos_w
-            robot_quat = self.robot.data.root_quat_w
+        # Visualization Logic
+        if self.cfg.debug_vis:
+            robot_pos = self._robot.data.root_pos_w
+            robot_quat = self._robot.data.root_quat_w
             
-            # 1. Visualize Linear Velocity (Red Arrow)
-            # ---------------------------------------
+            # Linear Velocity Arrow (Red)
             cmd_lin_local = torch.zeros(self.num_envs, 3, device=self.device)
-            cmd_lin_local[:, 0] = self.commands[:, 0] # vx
-            cmd_lin_local[:, 1] = self.commands[:, 1] # vy
-            
+            cmd_lin_local[:, 0] = self._commands[:, 0]
+            cmd_lin_local[:, 1] = self._commands[:, 1]
             cmd_lin_world = quat_apply(robot_quat, cmd_lin_local)
             
             yaw_lin = torch.atan2(cmd_lin_world[:, 1], cmd_lin_world[:, 0])
@@ -137,221 +95,170 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             axis_z = torch.stack([zeros, zeros, torch.ones_like(yaw_lin)], dim=-1)
             lin_arrow_quat = quat_from_angle_axis(yaw_lin, axis_z)
 
-            # Calculate Dynamic Scale for Linear Arrow
-            lin_mag = torch.norm(self.commands[:, :2], dim=1)
+            lin_mag = torch.norm(self._commands[:, :2], dim=1)
             lin_arrow_scale = torch.zeros(self.num_envs, 3, device=self.device)
             lin_arrow_scale[:, 0] = torch.clamp(lin_mag, min=0.1) 
-            lin_arrow_scale[:, 1] = 0.5  # Width (Thicker)
-            lin_arrow_scale[:, 2] = 0.5  # Height (Thicker)
+            lin_arrow_scale[:, 1] = 0.5 
+            lin_arrow_scale[:, 2] = 0.5 
             
-            # 2. Visualize Angular Velocity (Green Arrow)
-            # ---------------------------------------
-            ang_cmd_z = self.commands[:, 2]
+            # Angular Velocity Arrow (Green)
+            ang_cmd_z = self._commands[:, 2]
             cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
             cmd_ang_local[:, 1] = ang_cmd_z 
-            
             cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
             
             yaw_ang = torch.atan2(cmd_ang_world[:, 1], cmd_ang_world[:, 0])
             ang_arrow_quat = quat_from_angle_axis(yaw_ang, axis_z)
 
-            # Calculate Dynamic Scale for Angular Arrow
             ang_mag = torch.abs(ang_cmd_z)
             ang_arrow_scale = torch.zeros(self.num_envs, 3, device=self.device)
             ang_arrow_scale[:, 0] = torch.clamp(ang_mag, min=0.1) * 1.5 
-            ang_arrow_scale[:, 1] = 0.5  # Width (Thicker)
-            ang_arrow_scale[:, 2] = 0.5  # Height (Thicker)
+            ang_arrow_scale[:, 1] = 0.5 
+            ang_arrow_scale[:, 2] = 0.5 
 
-            # 3. Apply Visualization
-            # ----------------------
             self.lin_visualizer.visualize(
                 robot_pos + torch.tensor([0,0,1.0], device=self.device), 
                 lin_arrow_quat,
                 scales=lin_arrow_scale
             )
-            
             self.ang_visualizer.visualize(
                 robot_pos + torch.tensor([0,0,1.2], device=self.device), 
                 ang_arrow_quat,
                 scales=ang_arrow_scale
             )
-         
-    def _apply_action(self) -> None:
-        """Apply actions to the robot using position control."""
-        action_scale = 0.5 
-        current_targets = self.default_joint_pos + (self.actions * action_scale)
-        current_targets = torch.clamp(current_targets, -3.14, 3.14)
-        self.robot.set_joint_position_target(current_targets, joint_ids=self.actuated_joint_indices)
+
+    def _apply_action(self):
+        self._robot.set_joint_position_target(self._processed_actions)
 
     def _get_observations(self) -> dict:
-        self.root_state = self.robot.data.root_state_w
+        self._previous_actions = self._actions.clone()
         
-        base_lin_vel_world = self.root_state[:, 7:10]
-        base_ang_vel_world = self.root_state[:, 10:13]
-        base_quat = self.root_state[:, 3:7]
+        # Height Scan Logic
+        height_data = (
+            self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - 
+            self._height_scanner.data.ray_hits_w[..., 2] - 
+            0.5
+        ).clip(-1.0, 1.0)
         
-        # Transform velocities and gravity to base frame
-        self.base_lin_vel = quat_apply_inverse(base_quat, base_lin_vel_world)
-        self.base_ang_vel = quat_apply_inverse(base_quat, base_ang_vel_world)
-        
-        gravity_world = torch.tensor([0.0, 0.0, -1.0], device=self.device).repeat(self.num_envs, 1)
-        self.gravity_vec = quat_apply_inverse(base_quat, gravity_world)
-        
-        self.joint_pos = self.robot.data.joint_pos
-        self.joint_vel = self.robot.data.joint_vel
-        
-        obs_buf = torch.cat([
-            self.base_lin_vel,
-            self.base_ang_vel,
-            self.gravity_vec,
-            self.joint_pos,
-            self.joint_vel,
-            self.last_actions,
-            self.commands
-        ], dim=-1)
-
-        return {"policy": obs_buf, "critic": obs_buf}
-
+        obs = torch.cat(
+            [
+                tensor
+                for tensor in (
+                    self._robot.data.root_lin_vel_b,
+                    self._robot.data.root_ang_vel_b,
+                    self._robot.data.projected_gravity_b,
+                    self._commands,
+                    self._robot.data.joint_pos - self._robot.data.default_joint_pos,
+                    self._robot.data.joint_vel,
+                    height_data,
+                    self._actions,
+                )
+                if tensor is not None
+            ],
+            dim=-1,
+        )
+        return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
-        rew_cfg = self.cfg.params.RewScale
+        # -- Tracking --
+        lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
+        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
         
-        # Reward Calculation based on Dynamic Commands
+        yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
+        yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25)
         
-        # 1. Track linear velocity (XY)
-        lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
-        rew_lin_vel_xy = torch.exp(-lin_vel_error / 0.25)
+        # -- Penalties --
+        z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
+        ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
+        joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
+        joint_accel = torch.sum(torch.square(self._robot.data.joint_acc), dim=1)
+        action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
         
-        # 2. Track angular velocity Z
-        ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        rew_ang_vel_z = torch.exp(-ang_vel_error / 0.25)
+        # -- Gait / Contacts --
+        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
+        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         
-        # 3. Penalties
-        rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2])
-        rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, 0:2]), dim=-1)
-        rew_dof_vel = torch.sum(torch.square(self.joint_vel), dim=-1)
-        rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=-1)
-        
-        # 4. Joint Limits (Soft Limits)
-        soft_limit_threshold = 0.0 
-        deviation = torch.abs(self.joint_pos - self.default_joint_pos)
-        violation = torch.maximum(deviation - soft_limit_threshold, torch.tensor(0.0, device=self.device))
-        rew_dof_pos_limits = torch.sum(torch.square(violation), dim=-1)
-
-        # 5. Survival
-        rew_alive = torch.ones_like(rew_lin_vel_xy)
-
-        total_reward = (
-            rew_cfg.lin_vel_xy * rew_lin_vel_xy +
-            rew_cfg.ang_vel_z * rew_ang_vel_z -
-            rew_cfg.lin_vel_z * rew_lin_vel_z -
-            rew_cfg.ang_vel_xy * rew_ang_vel_xy -
-            rew_cfg.dof_vel * rew_dof_vel -
-            rew_cfg.action_rate * rew_action_rate -
-            rew_cfg.dof_pos_limits * rew_dof_pos_limits +
-            rew_cfg.alive * rew_alive
+        # Reward air time ONLY if commanded to move
+        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * (
+            torch.norm(self._commands[:, :2], dim=1) > 0.1
         )
-
-        total_reward = torch.where(self.reset_terminated, -rew_cfg.termination, total_reward)
-
-        return total_reward
-
-    def _resample_commands(self, env_ids: Sequence[int]):
-        """Randomly sample commands for the specified environments."""
-        r = self.cfg.params.Commands.Ranges
         
-        # Sample x velocity
-        self.commands[env_ids, 0] = torch.rand(len(env_ids), device=self.device) * (r.lin_vel_x[1] - r.lin_vel_x[0]) + r.lin_vel_x[0]
-        # Sample y velocity
-        self.commands[env_ids, 1] = torch.rand(len(env_ids), device=self.device) * (r.lin_vel_y[1] - r.lin_vel_y[0]) + r.lin_vel_y[0]
-        # Sample ang z velocity
-        self.commands[env_ids, 2] = torch.rand(len(env_ids), device=self.device) * (r.ang_vel_z[1] - r.ang_vel_z[0]) + r.ang_vel_z[0]
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        is_contact = (
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
+        )
+        contacts = torch.sum(is_contact, dim=1)
+        flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
+        # [!NEW] Alive Reward
+        alive = torch.ones(self.num_envs, device=self.device)
+
+        rewards = {
+            "alive": alive * self.cfg.alive_reward_scale * self.step_dt,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale * self.step_dt,
+            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale * self.step_dt,
+            "lin_vel_z_l2": z_vel_error * self.cfg.z_vel_reward_scale * self.step_dt,
+            "ang_vel_xy_l2": ang_vel_error * self.cfg.ang_vel_reward_scale * self.step_dt,
+            "dof_torques_l2": joint_torques * self.cfg.joint_torque_reward_scale * self.step_dt,
+            "dof_acc_l2": joint_accel * self.cfg.joint_accel_reward_scale * self.step_dt,
+            "action_rate_l2": action_rate * self.cfg.action_rate_reward_scale * self.step_dt,
+            "feet_air_time": air_time * self.cfg.feet_air_time_reward_scale * self.step_dt,
+            "undesired_contacts": contacts * self.cfg.undesired_contact_reward_scale * self.step_dt,
+            "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
+        }
+        
+        reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+        
+        for key, value in rewards.items():
+            if key not in self._episode_sums:
+                self._episode_sums[key] = torch.zeros_like(value)
+            self._episode_sums[key] += value
+            
+        return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        term_cfg = self.cfg.params.Terminations
-        
-        # -- Timeouts --
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-
-        # -- Terminations --
-        root_pos = self.robot.data.root_state_w[:, 0:3]
-        root_quat = self.robot.data.root_state_w[:, 3:7]
         
-        # Check height
-        base_height = root_pos[:, 2]
-        termination_height = self.default_root_state[0, 2] - 0.3
-        fell_over = base_height < termination_height
-        
-        # Check orientation
-        if term_cfg.reset_robot_on_bad_orientation:
-            roll, pitch, _ = quat_to_euler_xyz(root_quat)
-            bad_orientation = (torch.abs(roll) > term_cfg.max_roll_pitch_rad) | \
-                              (torch.abs(pitch) > term_cfg.max_roll_pitch_rad)
-            fell_over = fell_over | bad_orientation
+        # Terminate if Trunk hits the ground
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        died = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        return died, time_out
 
-        # Check base contact
-        if term_cfg.reset_robot_on_base_contact:
-            net_forces = self.base_contact_sensor.data.net_forces_w
-            force_magnitudes = torch.norm(net_forces, dim=-1)
-            base_contact = torch.any(force_magnitudes > 1.0, dim=-1)
-            fell_over = fell_over | base_contact
-
-        # Check joint limits
-        if term_cfg.reset_robot_on_joint_limits:
-            joint_limits_exceeded = torch.any(
-                torch.abs(self.joint_pos - self.default_joint_pos) > 0.5,
-                dim=-1
-            )
-            terminated = fell_over | joint_limits_exceeded
-        else:
-            terminated = fell_over
-
-        # -- Logging (The Important Part) --
-        if not hasattr(self, "extras"): self.extras = {}
-        
-        # Calculate errors (Command vs Actual)
-        # We use absolute error (|cmd - val|) because it's easier to read than squared error
-        lin_vel_error = torch.abs(self.commands[:, :2] - self.base_lin_vel[:, :2])
-        ang_vel_error = torch.abs(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        
-        self.extras["log"] = {
-            # -- Tracking Errors (LOWER IS BETTER) --
-            # If these are near 0.0, the robot is doing exactly what you say.
-            "Episode/Error_Lin_Vel_X": torch.mean(lin_vel_error[:, 0]),   # Forward/Back accuracy
-            "Episode/Error_Lin_Vel_Y": torch.mean(lin_vel_error[:, 1]),   # Sideways accuracy
-            "Episode/Error_Ang_Vel_Z": torch.mean(ang_vel_error),         # Turning accuracy (!)
-            
-            # -- Stability Metrics --
-            "Episode/Vel_Ang_XY_Stability": torch.mean(torch.norm(self.base_ang_vel[:, :2], dim=-1)),
-            "Episode/Base_Height": torch.mean(self.root_state[:, 2]),
-            
-            # -- Effort Metrics --
-            "Episode/Action_Rate": torch.mean(torch.norm(self.actions - self.last_actions, dim=-1)),
-            "Episode/Torque_Estimate": torch.mean(torch.norm(self.actions, dim=-1))
-        }
-
-        return terminated, time_out
-
-    def _reset_idx(self, env_ids: Sequence[int] | None):
-        if env_ids is None:
-            env_ids = self.robot._ALL_INDICES
-        
-        # Reset state
-        root_state = self.default_root_state[env_ids]
-        root_state[:, :3] += self.scene.env_origins[env_ids]
-        
-        joint_pos = self.default_joint_pos[env_ids]
-        joint_vel = torch.zeros_like(self.joint_vel[env_ids])
-
-        self.robot.write_root_state_to_sim(root_state, env_ids)
-        self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-
-        # Reset buffers
-        self.last_actions[env_ids] = 0.0
-        
-        # Reset commands and timers
-        self._resample_commands(env_ids)
-        self.command_timer[env_ids] = 0.0
-        
+    def _reset_idx(self, env_ids: torch.Tensor | None):
+        if env_ids is None or len(env_ids) == self.num_envs:
+            env_ids = self._robot._ALL_INDICES
+        self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
+        
+        if len(env_ids) == self.num_envs:
+            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
+            
+        self._actions[env_ids] = 0.0
+        self._previous_actions[env_ids] = 0.0
+        
+        # Sample Commands
+        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        self._commands[env_ids, 0] *= 1.0
+        self._commands[env_ids, 1] *= 0.5
+        self._commands[env_ids, 2] *= 0.8
+        
+        # Reset Robot State
+        joint_pos = self._robot.data.default_joint_pos[env_ids]
+        joint_vel = self._robot.data.default_joint_vel[env_ids]
+        default_root_state = self._robot.data.default_root_state[env_ids]
+        
+        # Offset by terrain height
+        default_root_state[:, :3] += self._terrain.env_origins[env_ids]
+        
+        self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
+        self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
+        self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+        
+        # Logging Extras
+        extras = dict()
+        for key in self._episode_sums.keys():
+            episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
+            extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
+            self._episode_sums[key][env_ids] = 0.0
+        self.extras["log"] = dict()
+        self.extras["log"].update(extras)
