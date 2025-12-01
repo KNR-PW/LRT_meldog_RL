@@ -142,6 +142,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             project_uvw=True,
         ),
         debug_vis=False,
+
     )
 
     # scene
@@ -203,6 +204,8 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         },
     )
 
+    target_base_height = 0.45
+
     # Reward Scales
     alive_reward_scale = 1.0 
 
@@ -218,3 +221,6 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     feet_air_time_reward_scale = 0.5
     undesired_contact_reward_scale = -1.0
     flat_orientation_reward_scale = -0.1
+
+    base_height_reward_scale = -1.0 
+    joint_deviation_reward_scale = -0.1

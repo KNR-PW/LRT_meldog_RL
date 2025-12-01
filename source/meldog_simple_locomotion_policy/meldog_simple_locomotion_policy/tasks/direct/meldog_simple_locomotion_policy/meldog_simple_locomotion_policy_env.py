@@ -43,6 +43,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2", "action_rate_l2",
                 "feet_air_time", "undesired_contacts", "flat_orientation_l2",
                 "alive",
+                "base_height_l2",     # [!NEW]
+                "joint_deviation_l2", # [!NEW]
             ]
         }
 
@@ -245,7 +247,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         # -- Gait / Contacts --
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        
         air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * (
             torch.norm(self._commands[:, :2], dim=1) > 0.1
         )
@@ -256,6 +257,20 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         )
         contacts = torch.sum(is_contact, dim=1)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
+
+        # [!NEW] Phase 2: Geometric Height Reward
+        # Calculate height based on feet position (Robust to flying/tilting)
+        root_z = self._robot.data.root_pos_w[:, 2]
+        feet_z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
+        # Average height of feet (Terrain Level)
+        terrain_height = torch.mean(feet_z, dim=1)
+        # Height of base above feet
+        current_height = root_z - terrain_height
+        base_height_error = torch.square(current_height - self.cfg.target_base_height)
+
+        # [!NEW] Phase 2: Joint Regularization
+        # Penalize deviation from the comfortable "Initial State"
+        joint_deviation = torch.sum(torch.square(self._robot.data.joint_pos - self._robot.data.default_joint_pos), dim=1)
 
         alive = torch.ones(self.num_envs, device=self.device)
 
@@ -271,6 +286,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             "feet_air_time": air_time * self.cfg.feet_air_time_reward_scale * self.step_dt,
             "undesired_contacts": contacts * self.cfg.undesired_contact_reward_scale * self.step_dt,
             "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
+            # [!NEW] Add to dict
+            "base_height_l2": base_height_error * self.cfg.base_height_reward_scale * self.step_dt,
+            "joint_deviation_l2": joint_deviation * self.cfg.joint_deviation_reward_scale * self.step_dt,
         }
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
