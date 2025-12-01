@@ -27,7 +27,13 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
+        
+        # [!NEW] Command Timer & Mode Buffer
+        # Timer: How long until next command switch?
         self._command_timer = torch.zeros(self.num_envs, device=self.device)
+        # Mode: Integer ID for what the robot is doing (0=Stand, 1=Rot, etc.)
+        # Used for split logging.
+        self._command_modes = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # Reward Logging
         self._episode_sums = {
@@ -44,23 +50,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._base_id, _ = self._contact_sensor.find_bodies("trunk_link")
         self._feet_ids, _ = self._contact_sensor.find_bodies(".*F_link")
         
-        # [!CRITICAL FIX] Align Sensor and Actor indices by Name
-        # 1. Get Indices AND Names
-        sensor_ids, sensor_names = self._contact_sensor.find_bodies(".*(H|UL|LL)_link")
-        actor_ids, actor_names = self._robot.find_bodies(".*(H|UL|LL)_link")
-        
-        # 2. Sort both lists alphabetically by name to force alignment
-        # zip -> sort -> unzip
-        sensor_sorted = sorted(zip(sensor_names, sensor_ids), key=lambda x: x[0])
-        actor_sorted = sorted(zip(actor_names, actor_ids), key=lambda x: x[0])
-        
-        # 3. Store the aligned indices
-        self._undesired_sensor_ids = [idx for name, idx in sensor_sorted]
-        self._undesired_actor_ids = [idx for name, idx in actor_sorted]
-        
-        # Verify alignment (Debug print)
-        # print(f"Aligned Body Check: {sensor_sorted[0][0]} == {actor_sorted[0][0]}")
-        
+        # [!CRITICAL] Dual Indices for Visualizer vs Physics
+        self._undesired_sensor_ids, _ = self._contact_sensor.find_bodies(".*(H|UL|LL)_link")
+        self._undesired_actor_ids, _ = self._robot.find_bodies(".*(H|UL|LL)_link")
+
     def _setup_scene(self):
         # 1. Robot Setup
         self._robot = Articulation(self.cfg.robot)
@@ -91,19 +84,65 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
         self.contact_visualizer = VisualizationMarkers(self.cfg.contact_marker)
 
-  
+    # [!NEW] Command Curriculum Logic
+    def _sample_commands(self, env_ids: torch.Tensor):
+        # Percentages:
+        # 0-20%:  Stand Still (0,0,0)
+        # 20-40%: Pure Rotate (Yaw)
+        # 40-60%: Pure Walk X (Forward/Back)
+        # 60-70%: Pure Strafe Y (Left/Right)
+        # 70-100%: Omni (Mixed)
+        
+        r = torch.rand(len(env_ids), device=self.device)
+        new_cmds = torch.zeros(len(env_ids), 3, device=self.device)
+        new_modes = torch.zeros(len(env_ids), dtype=torch.long, device=self.device)
+
+        # Mode 0: Stand Still (r < 0.2) - Default 0.0 is fine
+        new_modes[r < 0.2] = 0
+
+        # Mode 1: Pure Rotate (0.2 <= r < 0.4)
+        mask = (r >= 0.2) & (r < 0.4)
+        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        new_modes[mask] = 1
+
+        # Mode 2: Pure Walk X (0.4 <= r < 0.6)
+        mask = (r >= 0.4) & (r < 0.6)
+        new_cmds[mask, 0] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        new_modes[mask] = 2
+
+        # Mode 3: Pure Strafe Y (0.6 <= r < 0.7)
+        mask = (r >= 0.6) & (r < 0.7)
+        new_cmds[mask, 1] = torch.empty(mask.sum(), device=self.device).uniform_(-0.5, 0.5)
+        new_modes[mask] = 3
+
+        # Mode 4: Omni (r >= 0.7)
+        mask = (r >= 0.7)
+        new_cmds[mask, 0] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        new_cmds[mask, 1] = torch.empty(mask.sum(), device=self.device).uniform_(-0.5, 0.5)
+        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        new_modes[mask] = 4
+
+        self._commands[env_ids] = new_cmds
+        self._command_modes[env_ids] = new_modes
+
     def _pre_physics_step(self, actions: torch.Tensor):
         self._actions = actions.clone()
-        # PD Control
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+
+        # [!NEW] Update Timers
+        self._command_timer -= self.step_dt
+        reset_ids = (self._command_timer <= 0).nonzero(as_tuple=False).flatten()
+        if len(reset_ids) > 0:
+            self._sample_commands(reset_ids)
+            # Reset timer to random between 4s and 9s
+            self._command_timer[reset_ids] = torch.empty(len(reset_ids), device=self.device).uniform_(4.0, 9.0)
 
         # Visualization Logic
         if self.cfg.debug_vis:
             robot_pos = self._robot.data.root_pos_w
             robot_quat = self._robot.data.root_quat_w
             
-            # --- 1. Command Arrows ---
-            # Linear Velocity (Red)
+            # 1. Command Arrows
             cmd_lin_local = torch.zeros(self.num_envs, 3, device=self.device)
             cmd_lin_local[:, :2] = self._commands[:, :2]
             cmd_lin_world = quat_apply(robot_quat, cmd_lin_local)
@@ -119,7 +158,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             lin_arrow_scale[:, 1] = 0.5 
             lin_arrow_scale[:, 2] = 0.5 
             
-            # Angular Velocity (Green)
             cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
             cmd_ang_local[:, 1] = self._commands[:, 2]
             cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
@@ -144,20 +182,12 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 scales=ang_arrow_scale
             )
 
-            # --- 2. Contact Markers (Red Spheres) ---
-            
-            # A. Get Forces using SENSOR indices
+            # 2. Contact Markers
             raw_forces = self._contact_sensor.data.net_forces_w_history[:, :, self._undesired_sensor_ids]
             force_magnitudes = torch.max(torch.norm(raw_forces, dim=-1), dim=1)[0]
-            
-            # Filter for contacts > 1.0 Newton
             contact_mask = force_magnitudes > 1.0
             
-            # B. Get Positions using ACTOR indices
-            # [!FIX] Use _undesired_actor_ids here!
             undesired_body_pos = self._robot.data.body_pos_w[:, self._undesired_actor_ids, :]
-            
-            # C. Extract and Draw
             active_contact_pos = undesired_body_pos[contact_mask]
             
             if active_contact_pos.shape[0] > 0:
@@ -172,7 +202,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         self._previous_actions = self._actions.clone()
         
-        # Height Scan Logic
         height_data = (
             self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - 
             self._height_scanner.data.ray_hits_w[..., 2] - 
@@ -217,20 +246,17 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         
-        # Reward air time ONLY if commanded to move
         air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * (
             torch.norm(self._commands[:, :2], dim=1) > 0.1
         )
         
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            # Use SENSOR IDs
             torch.max(torch.norm(net_contact_forces[:, :, self._undesired_sensor_ids], dim=-1), dim=1)[0] > 1.0
         )
         contacts = torch.sum(is_contact, dim=1)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
-        # Alive Reward
         alive = torch.ones(self.num_envs, device=self.device)
 
         rewards = {
@@ -259,9 +285,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         
-        # Terminate if Trunk hits the ground
+        # Terminate if Trunk hits ground (> 50N impact)
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        died = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0, dim=1)
+        died = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 50.0, dim=1)
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
@@ -276,29 +302,42 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
         
-        # Sample Commands
-        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
-        self._commands[env_ids, 0] *= 1.0
-        self._commands[env_ids, 1] *= 0.5
-        self._commands[env_ids, 2] *= 0.8
+        # [!NEW] Sample curriculum commands
+        self._command_timer[env_ids] = torch.empty(len(env_ids), device=self.device).uniform_(4.0, 9.0)
+        self._sample_commands(env_ids)
         
-        # Reset Robot State
+        # Reset State
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
-        
-        # Offset by terrain height
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]
         
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
         
-        # Logging Extras
+        # Logging & Extra Metrics
         extras = dict()
         for key in self._episode_sums.keys():
             episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
             extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
+            
+        # [!NEW] Mode-Specific Metrics (Average tracking error per mode)
+        # We calculate this only for the resetting envs to avoid noise
+        # This will show up in "log/..." in TensorBoard
+        
+        # 1. Stand Drift (Linear Velocity when Mode=0)
+        stand_mask = (self._command_modes[env_ids] == 0)
+        if stand_mask.any():
+            vel_mag = torch.norm(self._robot.data.root_lin_vel_b[env_ids][stand_mask][:, :2], dim=1)
+            extras["Metrics/Drift_Vel_Stand"] = torch.mean(vel_mag)
+            
+        # 2. Walk Tracking (Lin Vel Error when Mode=2 or 4)
+        move_mask = (self._command_modes[env_ids] >= 2)
+        if move_mask.any():
+            lin_err = torch.norm(self._commands[env_ids][move_mask][:, :2] - self._robot.data.root_lin_vel_b[env_ids][move_mask][:, :2], dim=1)
+            extras["Metrics/Tracking_Err_Move"] = torch.mean(lin_err)
+
         self.extras["log"] = dict()
         self.extras["log"].update(extras)
