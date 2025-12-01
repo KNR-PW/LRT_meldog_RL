@@ -37,13 +37,13 @@ MELDOG_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, # Disabled to prevent spawn explosion
-            solver_position_iteration_count=8, # Increased for stable stiff motors
+            enabled_self_collisions=False, # self colisions are unreliable
+            solver_position_iteration_count=8,
             solver_velocity_iteration_count=0
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # Safe spawn height (positive Z)
+        # Spawn height negative, might be related to created USD and its spawn height
         pos=(0.0, 0.0, -0.12), 
         
         # Taller Stance to prevent immediate collapse
@@ -58,11 +58,9 @@ MELDOG_CFG = ArticulationCfg(
     actuators={
         "all_joints": DCMotorCfg(
             joint_names_expr=[".*"],
-            # High torque to lift the body (35Nm was too weak)
             effort_limit=35.0, 
             saturation_effort=35.0, 
             
-            # High Stiffness/Damping to stabilize the "Magic Carpet" fix
             stiffness=40.0,
             damping=4.0,
             
@@ -89,16 +87,15 @@ class EventCfg:
         },
     )
 
-    # Disabled Mass Randomization temporarily to ensure stable physics first
-    # add_base_mass = EventTerm(
-    #     func=mdp.randomize_rigid_body_mass,
-    #     mode="startup",
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
-    #         "mass_distribution_params": (-2.0, 3.0),
-    #         "operation": "add",
-    #     },
-    # )
+    add_base_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
+            "mass_distribution_params": (-2.0, 3.0),
+            "operation": "add",
+        },
+    )
 
 ##
 # Env Config
@@ -127,7 +124,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         ),
     )
 
-    # Terrain - Keeping Rough Terrain
+    # Terrain - Rough Terrain
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
@@ -196,20 +193,28 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         },
     )
 
+    contact_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/ContactMarker",
+        markers={
+            "sphere": sim_utils.SphereCfg(
+                radius=0.1, # red ball
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), opacity=0.8),
+            ),
+        },
+    )
+
     # Reward Scales
-    # [!CHANGED] Added Alive Reward to prevent suicide
-    alive_reward_scale = 1.5 
+    alive_reward_scale = 1.0 
 
     lin_vel_reward_scale = 1.0
     yaw_rate_reward_scale = 0.5
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     
-    # [!CHANGED] Reduced penalties to stop robot from freezing/dying
-    joint_torque_reward_scale = -2.5e-5
-    joint_accel_reward_scale = -2.5e-7
-    action_rate_reward_scale = -0.01 
+    joint_torque_reward_scale = -2.5e-6 
+    joint_accel_reward_scale = -2.0e-8  
+    action_rate_reward_scale = -0.005   
     
     feet_air_time_reward_scale = 0.5
     undesired_contact_reward_scale = -1.0
-    flat_orientation_reward_scale = -0.001
+    flat_orientation_reward_scale = -0.1

@@ -27,6 +27,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
+        self._command_timer = torch.zeros(self.num_envs, device=self.device)
 
         # Reward Logging
         self._episode_sums = {
@@ -35,15 +36,31 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 "track_lin_vel_xy_exp", "track_ang_vel_z_exp", "lin_vel_z_l2",
                 "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2", "action_rate_l2",
                 "feet_air_time", "undesired_contacts", "flat_orientation_l2",
-                "alive", # [!NEW] Added alive log
+                "alive",
             ]
         }
 
         # Body IDs
         self._base_id, _ = self._contact_sensor.find_bodies("trunk_link")
         self._feet_ids, _ = self._contact_sensor.find_bodies(".*F_link")
-        self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*H_link")
-
+        
+        # [!CRITICAL FIX] Align Sensor and Actor indices by Name
+        # 1. Get Indices AND Names
+        sensor_ids, sensor_names = self._contact_sensor.find_bodies(".*(H|UL|LL)_link")
+        actor_ids, actor_names = self._robot.find_bodies(".*(H|UL|LL)_link")
+        
+        # 2. Sort both lists alphabetically by name to force alignment
+        # zip -> sort -> unzip
+        sensor_sorted = sorted(zip(sensor_names, sensor_ids), key=lambda x: x[0])
+        actor_sorted = sorted(zip(actor_names, actor_ids), key=lambda x: x[0])
+        
+        # 3. Store the aligned indices
+        self._undesired_sensor_ids = [idx for name, idx in sensor_sorted]
+        self._undesired_actor_ids = [idx for name, idx in actor_sorted]
+        
+        # Verify alignment (Debug print)
+        # print(f"Aligned Body Check: {sensor_sorted[0][0]} == {actor_sorted[0][0]}")
+        
     def _setup_scene(self):
         # 1. Robot Setup
         self._robot = Articulation(self.cfg.robot)
@@ -72,8 +89,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         # Initialize Visualizers
         self.lin_visualizer = VisualizationMarkers(self.cfg.lin_vel_marker)
         self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
+        self.contact_visualizer = VisualizationMarkers(self.cfg.contact_marker)
 
-
+  
     def _pre_physics_step(self, actions: torch.Tensor):
         self._actions = actions.clone()
         # PD Control
@@ -84,15 +102,15 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             robot_pos = self._robot.data.root_pos_w
             robot_quat = self._robot.data.root_quat_w
             
-            # Linear Velocity Arrow (Red)
+            # --- 1. Command Arrows ---
+            # Linear Velocity (Red)
             cmd_lin_local = torch.zeros(self.num_envs, 3, device=self.device)
-            cmd_lin_local[:, 0] = self._commands[:, 0]
-            cmd_lin_local[:, 1] = self._commands[:, 1]
+            cmd_lin_local[:, :2] = self._commands[:, :2]
             cmd_lin_world = quat_apply(robot_quat, cmd_lin_local)
             
             yaw_lin = torch.atan2(cmd_lin_world[:, 1], cmd_lin_world[:, 0])
-            zeros = torch.zeros_like(yaw_lin)
-            axis_z = torch.stack([zeros, zeros, torch.ones_like(yaw_lin)], dim=-1)
+            axis_z = torch.zeros(self.num_envs, 3, device=self.device)
+            axis_z[:, 2] = 1.0
             lin_arrow_quat = quat_from_angle_axis(yaw_lin, axis_z)
 
             lin_mag = torch.norm(self._commands[:, :2], dim=1)
@@ -101,16 +119,15 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             lin_arrow_scale[:, 1] = 0.5 
             lin_arrow_scale[:, 2] = 0.5 
             
-            # Angular Velocity Arrow (Green)
-            ang_cmd_z = self._commands[:, 2]
+            # Angular Velocity (Green)
             cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
-            cmd_ang_local[:, 1] = ang_cmd_z 
+            cmd_ang_local[:, 1] = self._commands[:, 2]
             cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
             
             yaw_ang = torch.atan2(cmd_ang_world[:, 1], cmd_ang_world[:, 0])
             ang_arrow_quat = quat_from_angle_axis(yaw_ang, axis_z)
 
-            ang_mag = torch.abs(ang_cmd_z)
+            ang_mag = torch.abs(self._commands[:, 2])
             ang_arrow_scale = torch.zeros(self.num_envs, 3, device=self.device)
             ang_arrow_scale[:, 0] = torch.clamp(ang_mag, min=0.1) * 1.5 
             ang_arrow_scale[:, 1] = 0.5 
@@ -118,14 +135,36 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
             self.lin_visualizer.visualize(
                 robot_pos + torch.tensor([0,0,1.0], device=self.device), 
-                lin_arrow_quat,
+                lin_arrow_quat, 
                 scales=lin_arrow_scale
             )
             self.ang_visualizer.visualize(
                 robot_pos + torch.tensor([0,0,1.2], device=self.device), 
-                ang_arrow_quat,
+                ang_arrow_quat, 
                 scales=ang_arrow_scale
             )
+
+            # --- 2. Contact Markers (Red Spheres) ---
+            
+            # A. Get Forces using SENSOR indices
+            raw_forces = self._contact_sensor.data.net_forces_w_history[:, :, self._undesired_sensor_ids]
+            force_magnitudes = torch.max(torch.norm(raw_forces, dim=-1), dim=1)[0]
+            
+            # Filter for contacts > 1.0 Newton
+            contact_mask = force_magnitudes > 1.0
+            
+            # B. Get Positions using ACTOR indices
+            # [!FIX] Use _undesired_actor_ids here!
+            undesired_body_pos = self._robot.data.body_pos_w[:, self._undesired_actor_ids, :]
+            
+            # C. Extract and Draw
+            active_contact_pos = undesired_body_pos[contact_mask]
+            
+            if active_contact_pos.shape[0] > 0:
+                self.contact_visualizer.visualize(active_contact_pos)
+                self.contact_visualizer.set_visibility(True)
+            else:
+                self.contact_visualizer.set_visibility(False)
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self._processed_actions)
@@ -185,12 +224,13 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
+            # Use SENSOR IDs
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_sensor_ids], dim=-1), dim=1)[0] > 1.0
         )
         contacts = torch.sum(is_contact, dim=1)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
-        # [!NEW] Alive Reward
+        # Alive Reward
         alive = torch.ones(self.num_envs, device=self.device)
 
         rewards = {
