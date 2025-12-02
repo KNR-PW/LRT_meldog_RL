@@ -214,7 +214,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     
-    joint_torque_reward_scale = -2.5e-5 
+    joint_torque_reward_scale = -2.5e-6 
     joint_accel_reward_scale = -2.0e-8  
     action_rate_reward_scale = -0.005
     action_accel_reward_scale = -0.0025
@@ -226,5 +226,3 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
 
     base_height_reward_scale = -1.0 *0
     joint_deviation_reward_scale = -0.1
-
-    stand_still_reward_scale = -0.5*0

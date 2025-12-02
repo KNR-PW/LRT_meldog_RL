@@ -251,17 +251,24 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         joint_accel = torch.sum(torch.square(self._robot.data.joint_acc), dim=1)
         action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
         
+        # Action Acceleration (2nd Derivative)
+        # (Current - Prev) - (Prev - PrevPrev) = Current - 2*Prev + PrevPrev
+        action_accel = torch.sum(torch.square(
+            self._actions - 2*self._action_history[:, 0] + self._action_history[:, 1]
+        ), dim=1)
+
         # -- Gait / Contacts --
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         
-        # [!FIX] Logic: Robot is "moving" if LinVel > 0.1 OR AngVel > 0.1
-        # This fixes the bug where Pure Rotation was treated as "Standing"
-        is_moving = (torch.norm(self._commands[:, :2], dim=1) > 0.1) | (torch.abs(self._commands[:, 2]) > 0.1)
+        # [!FIX] "Moving" = Lin > 0.1 OR Ang > 0.1
+        # This ensures we don't penalize joint movement during rotation
+        is_moving = (torch.norm(self._commands[:, :2], dim=1) > 0.01) | (torch.abs(self._commands[:, 2]) > 0.01)
         
         # Apply air time reward only if commanded to move
         air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * is_moving.float()
         
+        # Undesired Contacts (Using SENSOR indices)
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
             torch.max(torch.norm(net_contact_forces[:, :, self._undesired_sensor_ids], dim=-1), dim=1)[0] > 1.0
@@ -269,26 +276,18 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         contacts = torch.sum(is_contact, dim=1)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
-        # -- Geometric Height Reward --
-        # Compare Root Z to Average Feet Z (handles slopes/terrain better than global Z)
+        # -- Geometric Base Height --
+        # Robust calculation: Base Z - Mean Feet Z
         root_z = self._robot.data.root_pos_w[:, 2]
         feet_z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
         terrain_height = torch.mean(feet_z, dim=1)
-        base_height_error = torch.square((root_z - terrain_height) - self.cfg.target_base_height)
+        current_base_height = root_z - terrain_height
+        base_height_error = torch.square(current_base_height - self.cfg.target_base_height)
 
-        # -- Regularization --
-        # Note: Ensure self.cfg.joint_deviation_reward_scale is 0.0 or very small (-0.01)
+        # -- Joint Regularization --
         joint_deviation = torch.sum(torch.square(self._robot.data.joint_pos - self._robot.data.default_joint_pos), dim=1)
 
         alive = torch.ones(self.num_envs, device=self.device)
-
-        action_accel = torch.sum(torch.square(
-            self._actions - 2*self._action_history[:, 0] + self._action_history[:, 1]
-        ), dim=1)
-
-        # [!FIX] Stand Still Penalty
-        # Only penalize joint velocity if we are NOT moving (Command is truly zero)
-        stand_still_penalty = torch.sum(torch.square(self._robot.data.joint_vel), dim=1) * (~is_moving).float()
 
         rewards = {
             "alive": alive * self.cfg.alive_reward_scale * self.step_dt,
@@ -305,8 +304,16 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
             "base_height_l2": base_height_error * self.cfg.base_height_reward_scale * self.step_dt,
             "joint_deviation_l2": joint_deviation * self.cfg.joint_deviation_reward_scale * self.step_dt,
-            "stand_still_penalty": stand_still_penalty * self.cfg.stand_still_reward_scale * self.step_dt,
         }
+        
+        reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+        
+        for key, value in rewards.items():
+            if key not in self._episode_sums:
+                self._episode_sums[key] = torch.zeros_like(value)
+            self._episode_sums[key] += value
+            
+        return reward
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         
