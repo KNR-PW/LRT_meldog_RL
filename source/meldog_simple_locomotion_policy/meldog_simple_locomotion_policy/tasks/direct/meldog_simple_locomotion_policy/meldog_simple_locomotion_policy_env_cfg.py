@@ -62,7 +62,7 @@ MELDOG_CFG = ArticulationCfg(
             saturation_effort=35.0, 
             
             stiffness=40.0,
-            damping=4.0,
+            damping=1.0,
             
             velocity_limit=18.9,
         )
@@ -204,23 +204,27 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         },
     )
 
-    target_base_height = 0.45
+    target_base_height = 0.35
 
     # Reward Scales
-    alive_reward_scale = 1.0 
+    alive_reward_scale = 1.0 * 0
 
     lin_vel_reward_scale = 1.0
     yaw_rate_reward_scale = 0.5
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     
-    joint_torque_reward_scale = -2.5e-6 
+    joint_torque_reward_scale = -2.5e-5 
     joint_accel_reward_scale = -2.0e-8  
-    action_rate_reward_scale = -0.005   
+    action_rate_reward_scale = -0.005
+    action_accel_reward_scale = -0.0025
+
     
     feet_air_time_reward_scale = 0.5
     undesired_contact_reward_scale = -1.0
-    flat_orientation_reward_scale = -0.1
+    flat_orientation_reward_scale = -0.3
 
-    base_height_reward_scale = -1.0 
+    base_height_reward_scale = -1.0 *0
     joint_deviation_reward_scale = -0.1
+
+    stand_still_reward_scale = -0.5*0

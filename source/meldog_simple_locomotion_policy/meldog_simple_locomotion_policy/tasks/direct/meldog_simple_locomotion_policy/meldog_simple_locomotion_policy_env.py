@@ -25,6 +25,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
         # Buffers
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        self._action_history = torch.zeros(self.num_envs, 2, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         
@@ -45,6 +46,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 "alive",
                 "base_height_l2",     # [!NEW]
                 "joint_deviation_l2", # [!NEW]
+                "action_accel_l2",
             ]
         }
 
@@ -104,7 +106,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
 
         # Mode 1: Pure Rotate (0.2 <= r < 0.4)
         mask = (r >= 0.2) & (r < 0.4)
-        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-2.0, 2.0)
         new_modes[mask] = 1
 
         # Mode 2: Pure Walk X (0.4 <= r < 0.6)
@@ -138,6 +140,11 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             self._sample_commands(reset_ids)
             # Reset timer to random between 4s and 9s
             self._command_timer[reset_ids] = torch.empty(len(reset_ids), device=self.device).uniform_(4.0, 9.0)
+
+        # action rate history
+        self._action_history[:, 1] = self._action_history[:, 0]
+        self._action_history[:, 0] = self._actions.clone()
+        self._actions = actions.clone()
 
         # Visualization Logic
         if self.cfg.debug_vis:
@@ -247,9 +254,13 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         # -- Gait / Contacts --
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * (
-            torch.norm(self._commands[:, :2], dim=1) > 0.1
-        )
+        
+        # [!FIX] Logic: Robot is "moving" if LinVel > 0.1 OR AngVel > 0.1
+        # This fixes the bug where Pure Rotation was treated as "Standing"
+        is_moving = (torch.norm(self._commands[:, :2], dim=1) > 0.1) | (torch.abs(self._commands[:, 2]) > 0.1)
+        
+        # Apply air time reward only if commanded to move
+        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * is_moving.float()
         
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
@@ -258,21 +269,26 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         contacts = torch.sum(is_contact, dim=1)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
-        # [!NEW] Phase 2: Geometric Height Reward
-        # Calculate height based on feet position (Robust to flying/tilting)
+        # -- Geometric Height Reward --
+        # Compare Root Z to Average Feet Z (handles slopes/terrain better than global Z)
         root_z = self._robot.data.root_pos_w[:, 2]
         feet_z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
-        # Average height of feet (Terrain Level)
         terrain_height = torch.mean(feet_z, dim=1)
-        # Height of base above feet
-        current_height = root_z - terrain_height
-        base_height_error = torch.square(current_height - self.cfg.target_base_height)
+        base_height_error = torch.square((root_z - terrain_height) - self.cfg.target_base_height)
 
-        # [!NEW] Phase 2: Joint Regularization
-        # Penalize deviation from the comfortable "Initial State"
+        # -- Regularization --
+        # Note: Ensure self.cfg.joint_deviation_reward_scale is 0.0 or very small (-0.01)
         joint_deviation = torch.sum(torch.square(self._robot.data.joint_pos - self._robot.data.default_joint_pos), dim=1)
 
         alive = torch.ones(self.num_envs, device=self.device)
+
+        action_accel = torch.sum(torch.square(
+            self._actions - 2*self._action_history[:, 0] + self._action_history[:, 1]
+        ), dim=1)
+
+        # [!FIX] Stand Still Penalty
+        # Only penalize joint velocity if we are NOT moving (Command is truly zero)
+        stand_still_penalty = torch.sum(torch.square(self._robot.data.joint_vel), dim=1) * (~is_moving).float()
 
         rewards = {
             "alive": alive * self.cfg.alive_reward_scale * self.step_dt,
@@ -283,12 +299,13 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             "dof_torques_l2": joint_torques * self.cfg.joint_torque_reward_scale * self.step_dt,
             "dof_acc_l2": joint_accel * self.cfg.joint_accel_reward_scale * self.step_dt,
             "action_rate_l2": action_rate * self.cfg.action_rate_reward_scale * self.step_dt,
+            "action_accel_l2": action_accel * self.cfg.action_accel_reward_scale * self.step_dt,
             "feet_air_time": air_time * self.cfg.feet_air_time_reward_scale * self.step_dt,
             "undesired_contacts": contacts * self.cfg.undesired_contact_reward_scale * self.step_dt,
             "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
-            # [!NEW] Add to dict
             "base_height_l2": base_height_error * self.cfg.base_height_reward_scale * self.step_dt,
             "joint_deviation_l2": joint_deviation * self.cfg.joint_deviation_reward_scale * self.step_dt,
+            "stand_still_penalty": stand_still_penalty * self.cfg.stand_still_reward_scale * self.step_dt,
         }
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -299,7 +316,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             self._episode_sums[key] += value
             
         return reward
-
+    
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         

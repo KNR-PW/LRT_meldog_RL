@@ -13,7 +13,7 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
     
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=True,
+        actor_obs_normalization=False,
         critic_obs_normalization=True,
         actor_hidden_dims=[512, 256, 128], # Larger net for Rough Terrain
         critic_hidden_dims=[512, 256, 128],
