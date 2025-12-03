@@ -29,12 +29,9 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         
-        # [!NEW] Command Timer & Mode Buffer
+        # Command Timer & Mode Buffer
         # Timer: How long until next command switch?
         self._command_timer = torch.zeros(self.num_envs, device=self.device)
-        # Mode: Integer ID for what the robot is doing (0=Stand, 1=Rot, etc.)
-        # Used for split logging.
-        self._command_modes = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # Reward Logging
         self._episode_sums = {
@@ -44,8 +41,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2", "action_rate_l2",
                 "feet_air_time", "undesired_contacts", "flat_orientation_l2",
                 "alive",
-                "base_height_l2",     # [!NEW]
-                "joint_deviation_l2", # [!NEW]
+                "base_height_l2",     
+                "joint_deviation_l2", 
                 "action_accel_l2",
             ]
         }
@@ -54,7 +51,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._base_id, _ = self._contact_sensor.find_bodies("trunk_link")
         self._feet_ids, _ = self._contact_sensor.find_bodies(".*F_link")
         
-        # [!CRITICAL] Dual Indices for Visualizer vs Physics
+        # Dual Indices for Visualizer vs Physics
         self._undesired_sensor_ids, _ = self._contact_sensor.find_bodies(".*(H|UL|LL)_link")
         self._undesired_actor_ids, _ = self._robot.find_bodies(".*(H|UL|LL)_link")
 
@@ -88,7 +85,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
         self.contact_visualizer = VisualizationMarkers(self.cfg.contact_marker)
 
-    # [!NEW] Command Curriculum Logic
+    # Command Curriculum Logic
     def _sample_commands(self, env_ids: torch.Tensor):
         # Percentages:
         # 0-20%:  Stand Still (0,0,0)
@@ -133,7 +130,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
-        # [!NEW] Update Timers
+        # Update Timers
         self._command_timer -= self.step_dt
         reset_ids = (self._command_timer <= 0).nonzero(as_tuple=False).flatten()
         if len(reset_ids) > 0:
@@ -261,8 +258,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         
-        # [!FIX] "Moving" = Lin > 0.1 OR Ang > 0.1
-        # This ensures we don't penalize joint movement during rotation
+        # Ensure not to penalize joint movement during rotation
         is_moving = (torch.norm(self._commands[:, :2], dim=1) > 0.01) | (torch.abs(self._commands[:, 2]) > 0.01)
         
         # Apply air time reward only if commanded to move
@@ -314,15 +310,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             self._episode_sums[key] += value
             
         return reward
-        
-        reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-        
-        for key, value in rewards.items():
-            if key not in self._episode_sums:
-                self._episode_sums[key] = torch.zeros_like(value)
-            self._episode_sums[key] += value
-            
-        return reward
     
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         time_out = self.episode_length_buf >= self.max_episode_length - 1
@@ -344,7 +331,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
         
-        # [!NEW] Sample curriculum commands
+        # Sample curriculum commands
         self._command_timer[env_ids] = torch.empty(len(env_ids), device=self.device).uniform_(4.0, 9.0)
         self._sample_commands(env_ids)
         
@@ -365,21 +352,5 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
             
-        # [!NEW] Mode-Specific Metrics (Average tracking error per mode)
-        # We calculate this only for the resetting envs to avoid noise
-        # This will show up in "log/..." in TensorBoard
-        
-        # 1. Stand Drift (Linear Velocity when Mode=0)
-        stand_mask = (self._command_modes[env_ids] == 0)
-        if stand_mask.any():
-            vel_mag = torch.norm(self._robot.data.root_lin_vel_b[env_ids][stand_mask][:, :2], dim=1)
-            extras["Metrics/Drift_Vel_Stand"] = torch.mean(vel_mag)
-            
-        # 2. Walk Tracking (Lin Vel Error when Mode=2 or 4)
-        move_mask = (self._command_modes[env_ids] >= 2)
-        if move_mask.any():
-            lin_err = torch.norm(self._commands[env_ids][move_mask][:, :2] - self._robot.data.root_lin_vel_b[env_ids][move_mask][:, :2], dim=1)
-            extras["Metrics/Tracking_Err_Move"] = torch.mean(lin_err)
-
         self.extras["log"] = dict()
         self.extras["log"].update(extras)

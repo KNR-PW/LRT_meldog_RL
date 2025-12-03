@@ -62,7 +62,7 @@ MELDOG_CFG = ArticulationCfg(
             saturation_effort=35.0, 
             
             stiffness=40.0,
-            damping=1.0,
+            damping=2.0,
             
             velocity_limit=18.9,
         )
@@ -200,6 +200,16 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             "sphere": sim_utils.SphereCfg(
                 radius=0.1, # red ball
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), opacity=0.8),
+            ),
+        },
+    )
+
+    height_scan_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/HeightScan",
+        markers={
+            "point": sim_utils.SphereCfg(
+                radius=0.03, 
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.1, 1.0)), # Blue
             ),
         },
     )
