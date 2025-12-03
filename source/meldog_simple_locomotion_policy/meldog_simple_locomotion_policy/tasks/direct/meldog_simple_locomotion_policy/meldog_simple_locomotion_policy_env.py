@@ -30,8 +30,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
         
         # Command Timer & Mode Buffer
-        # Timer: How long until next command switch?
         self._command_timer = torch.zeros(self.num_envs, device=self.device)
+        self._command_modes = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # Reward Logging
         self._episode_sums = {
@@ -41,8 +41,8 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 "ang_vel_xy_l2", "dof_torques_l2", "dof_acc_l2", "action_rate_l2",
                 "feet_air_time", "undesired_contacts", "flat_orientation_l2",
                 "alive",
-                "base_height_l2",     
-                "joint_deviation_l2", 
+                "base_height_l2",
+                "joint_deviation_l2",
                 "action_accel_l2",
             ]
         }
@@ -85,42 +85,53 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self.ang_visualizer = VisualizationMarkers(self.cfg.ang_vel_marker)
         self.contact_visualizer = VisualizationMarkers(self.cfg.contact_marker)
 
-    # Command Curriculum Logic
     def _sample_commands(self, env_ids: torch.Tensor):
-        # Percentages:
-        # 0-20%:  Stand Still (0,0,0)
-        # 20-40%: Pure Rotate (Yaw)
-        # 40-60%: Pure Walk X (Forward/Back)
-        # 60-70%: Pure Strafe Y (Left/Right)
-        # 70-100%: Omni (Mixed)
+        # Improved Curriculum with "Hollow" distribution and better Strafe balance
+        # 0.0 - 0.1: Stand Still (10%)
+        # 0.1 - 0.3: Pure Rotate (20%)
+        # 0.3 - 0.55: Pure Walk X (25%)
+        # 0.55 - 0.75: Pure Strafe Y (20%)
+        # 0.75 - 1.0: Omni (25%)
+
+        len_ids = len(env_ids)
+        r = torch.rand(len_ids, device=self.device)
         
-        r = torch.rand(len(env_ids), device=self.device)
-        new_cmds = torch.zeros(len(env_ids), 3, device=self.device)
-        new_modes = torch.zeros(len(env_ids), dtype=torch.long, device=self.device)
+        new_cmds = torch.zeros(len_ids, 3, device=self.device)
+        new_modes = torch.zeros(len_ids, dtype=torch.long, device=self.device)
 
-        # Mode 0: Stand Still (r < 0.2) - Default 0.0 is fine
-        new_modes[r < 0.2] = 0
+        # Helper: Hollow distribution to avoid near-zero ambiguous commands
+        def sample_hollow(mask, min_val, max_val):
+            count = mask.sum()
+            if count > 0:
+                mag = torch.empty(count, device=self.device).uniform_(min_val, max_val)
+                sign = torch.sign(torch.empty(count, device=self.device).uniform_(-1.0, 1.0))
+                return mag * sign
+            return torch.tensor([], device=self.device)
 
-        # Mode 1: Pure Rotate (0.2 <= r < 0.4)
-        mask = (r >= 0.2) & (r < 0.4)
-        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-2.0, 2.0)
+        # Mode 0: Stand Still (r < 0.1)
+        new_modes[r < 0.1] = 0
+
+        # Mode 1: Pure Rotate (0.1 <= r < 0.3)
+        mask = (r >= 0.1) & (r < 0.3)
+        new_cmds[mask, 2] = sample_hollow(mask, 0.4, 1.0)
         new_modes[mask] = 1
 
-        # Mode 2: Pure Walk X (0.4 <= r < 0.6)
-        mask = (r >= 0.4) & (r < 0.6)
-        new_cmds[mask, 0] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        # Mode 2: Pure Walk X (0.3 <= r < 0.55)
+        mask = (r >= 0.3) & (r < 0.55)
+        new_cmds[mask, 0] = sample_hollow(mask, 0.3, 1.0)
         new_modes[mask] = 2
 
-        # Mode 3: Pure Strafe Y (0.6 <= r < 0.7)
-        mask = (r >= 0.6) & (r < 0.7)
-        new_cmds[mask, 1] = torch.empty(mask.sum(), device=self.device).uniform_(-0.5, 0.5)
+        # Mode 3: Pure Strafe Y (0.55 <= r < 0.75)
+        mask = (r >= 0.55) & (r < 0.75)
+        new_cmds[mask, 1] = sample_hollow(mask, 0.2, 0.5)
         new_modes[mask] = 3
 
-        # Mode 4: Omni (r >= 0.7)
-        mask = (r >= 0.7)
-        new_cmds[mask, 0] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
-        new_cmds[mask, 1] = torch.empty(mask.sum(), device=self.device).uniform_(-0.5, 0.5)
-        new_cmds[mask, 2] = torch.empty(mask.sum(), device=self.device).uniform_(-1.0, 1.0)
+        # Mode 4: Omni (0.75 <= r <= 1.0)
+        mask = (r >= 0.75)
+        # Scaled down slightly to avoid max-torque saturation
+        new_cmds[mask, 0] = sample_hollow(mask, 0.3, 0.8)
+        new_cmds[mask, 1] = sample_hollow(mask, 0.2, 0.4)
+        new_cmds[mask, 2] = sample_hollow(mask, 0.3, 0.8)
         new_modes[mask] = 4
 
         self._commands[env_ids] = new_cmds
@@ -249,7 +260,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
         
         # Action Acceleration (2nd Derivative)
-        # (Current - Prev) - (Prev - PrevPrev) = Current - 2*Prev + PrevPrev
         action_accel = torch.sum(torch.square(
             self._actions - 2*self._action_history[:, 0] + self._action_history[:, 1]
         ), dim=1)
@@ -258,11 +268,10 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         
-        # Ensure not to penalize joint movement during rotation
-        is_moving = (torch.norm(self._commands[:, :2], dim=1) > 0.01) | (torch.abs(self._commands[:, 2]) > 0.01)
-        
-        # Apply air time reward only if commanded to move
-        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * is_moving.float()
+        # Only check air time when Commanding Linear Velocity.
+        # This allows "shuffling" feet during rotation.
+        is_commanding_linear = torch.norm(self._commands[:, :2], dim=1) > 0.1
+        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * is_commanding_linear.float()
         
         # Undesired Contacts (Using SENSOR indices)
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -273,7 +282,6 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
         # -- Geometric Base Height --
-        # Robust calculation: Base Z - Mean Feet Z
         root_z = self._robot.data.root_pos_w[:, 2]
         feet_z = self._robot.data.body_pos_w[:, self._feet_ids, 2]
         terrain_height = torch.mean(feet_z, dim=1)

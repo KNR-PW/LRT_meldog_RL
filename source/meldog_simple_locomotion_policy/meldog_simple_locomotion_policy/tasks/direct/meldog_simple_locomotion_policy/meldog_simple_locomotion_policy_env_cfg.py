@@ -43,7 +43,7 @@ MELDOG_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # Spawn height negative, might be related to created USD and its spawn height
+        # Spawn height negative, related to created USD origin
         pos=(0.0, 0.0, -0.12), 
         
         # Taller Stance to prevent immediate collapse
