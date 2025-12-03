@@ -37,16 +37,13 @@ MELDOG_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, # self colisions are unreliable
+            enabled_self_collisions=False,
             solver_position_iteration_count=8,
             solver_velocity_iteration_count=0
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # Spawn height negative, related to created USD origin
-        pos=(0.0, 0.0, -0.12), 
-        
-        # Taller Stance to prevent immediate collapse
+        pos=(0.0, 0.0, 0.6), # Safe spawn height for Rough Terrain
         joint_pos={
             "LFT_joint": 0.0, "LFH_joint": -0.6, "LFK_joint": 1.3,
             "RFT_joint": 0.0, "RFH_joint": -0.6, "RFK_joint": 1.3,
@@ -61,8 +58,10 @@ MELDOG_CFG = ArticulationCfg(
             effort_limit=35.0, 
             saturation_effort=35.0, 
             
-            stiffness=40.0,
-            damping=1.0,
+            # Keeping the 25kg Logic: 55.0 / 1.5
+            # We cannot use ANYmal's 80.0 here or the robot will explode.
+            stiffness=55.0,
+            damping=1.5,
             
             velocity_limit=18.9,
         )
@@ -80,8 +79,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.6, 1.25), 
-            "dynamic_friction_range": (0.6, 1.0),
+            "static_friction_range": (0.8, 0.8), # ANYmal Default
+            "dynamic_friction_range": (0.6, 0.6), # ANYmal Default
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -92,7 +91,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
-            "mass_distribution_params": (-2.0, 3.0),
+            "mass_distribution_params": (-2.0, 3.0), # Adjusted for 25kg robot scale
             "operation": "add",
         },
     )
@@ -124,7 +123,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         ),
     )
 
-    # Terrain - Rough Terrain
+    # Terrain - Rough Terrain Generator
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
@@ -142,7 +141,6 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             project_uvw=True,
         ),
         debug_vis=False,
-
     )
 
     # scene
@@ -203,26 +201,31 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             ),
         },
     )
+    
+    height_scan_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/HeightScan",
+        markers={
+            "point": sim_utils.SphereCfg(
+                radius=0.03, 
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.1, 1.0)), # Blue
+            ),
+        },
+    )
 
-    target_base_height = 0.35
+    target_base_height = 0.40 # Adjusted for Meldog size
 
-    # Reward Scales
-    alive_reward_scale = 1.0 * 0
-
+    # -- REWARDS (Standard ANYmal C Values) --
     lin_vel_reward_scale = 1.0
     yaw_rate_reward_scale = 0.5
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     
-    joint_torque_reward_scale = -2.5e-6 
-    joint_accel_reward_scale = -2.0e-8  
-    action_rate_reward_scale = -0.005
-    action_accel_reward_scale = -0.0025
-
+    joint_torque_reward_scale = -2.5e-5 # ANYmal default
+    joint_accel_reward_scale = -2.5e-7  # ANYmal default
+    action_rate_reward_scale = -0.01    # ANYmal default
     
     feet_air_time_reward_scale = 0.5
     undesired_contact_reward_scale = -1.0
-    flat_orientation_reward_scale = -0.3
-
-    base_height_reward_scale = -1.0 *0
-    joint_deviation_reward_scale = -0.1
+    
+    # ANYmal rough config sets this to 0.0 because rough terrain is uneven
+    flat_orientation_reward_scale = 0.0
