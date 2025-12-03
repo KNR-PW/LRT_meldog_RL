@@ -43,7 +43,7 @@ MELDOG_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.6), # Safe spawn height for Rough Terrain
+        pos=(0.0, 0.0, -0.1), # Negative because of badly created USD model
         joint_pos={
             "LFT_joint": 0.0, "LFH_joint": -0.6, "LFK_joint": 1.3,
             "RFT_joint": 0.0, "RFH_joint": -0.6, "RFK_joint": 1.3,
@@ -59,7 +59,6 @@ MELDOG_CFG = ArticulationCfg(
             saturation_effort=35.0, 
             
             # Keeping the 25kg Logic: 55.0 / 1.5
-            # We cannot use ANYmal's 80.0 here or the robot will explode.
             stiffness=55.0,
             damping=1.5,
             
@@ -198,16 +197,6 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             "sphere": sim_utils.SphereCfg(
                 radius=0.1, # red ball
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), opacity=0.8),
-            ),
-        },
-    )
-    
-    height_scan_marker: VisualizationMarkersCfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/HeightScan",
-        markers={
-            "point": sim_utils.SphereCfg(
-                radius=0.03, 
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.1, 1.0)), # Blue
             ),
         },
     )
