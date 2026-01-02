@@ -73,6 +73,7 @@ if version.parse(installed_version) < version.parse(RSL_RL_VERSION):
 """Rest everything follows."""
 
 import gymnasium as gym
+import logging
 import os
 import torch
 from datetime import datetime
@@ -150,10 +151,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the IO descriptors export flag if requested
     if isinstance(env_cfg, ManagerBasedRLEnvCfg):
         env_cfg.export_io_descriptors = args_cli.export_io_descriptors
-    else:
-        omni.log.warn(
-            "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
-        )
+    # THIS BROKE AFTER AWS -> PC MIGRATION 
+    # else:
+        # logger.warning(
+        #     "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
+        # )
 
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
