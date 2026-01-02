@@ -28,7 +28,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Reward Logging (Matching ANYmal Standard)
+        # Reward Logging
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
@@ -85,7 +85,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
-        # Visualization Logic (Restored from Original File)
+        # Visualization Logic
         if self.cfg.debug_vis:
             robot_pos = self._robot.data.root_pos_w
             robot_quat = self._robot.data.root_quat_w
@@ -107,7 +107,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             lin_arrow_scale[:, 1] = 0.5 
             lin_arrow_scale[:, 2] = 0.5 
             
-            # Angular (Green) - RESTORED
+            # Angular (Green)
             cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
             cmd_ang_local[:, 1] = self._commands[:, 2]
             cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
@@ -132,7 +132,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 scales=ang_arrow_scale
             )
 
-            # 2. Contact Markers - RESTORED
+            # 2. Contact Markers
             raw_forces = self._contact_sensor.data.net_forces_w_history[:, :, self._undesired_contact_body_ids]
             force_magnitudes = torch.max(torch.norm(raw_forces, dim=-1), dim=1)[0]
             contact_mask = force_magnitudes > 1.0
@@ -198,7 +198,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         # Standard ANYmal Logic: 
         # Only reward air time if linear command > 0.1
-        air_time = torch.sum((last_air_time - 0.5) * first_contact, dim=1) * (
+        air_time = torch.sum((last_air_time - self.cfg.feet_air_time) * first_contact, dim=1) * (
             torch.norm(self._commands[:, :2], dim=1) > 0.1
         )
         

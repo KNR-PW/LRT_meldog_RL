@@ -25,7 +25,7 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 ##
 MELDOG_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path="/home/ubuntu/Downloads/Meldog-1.4-no-ground-plane.usd",
+        usd_path="/home/frydjak/Downloads/Meldog-1.4-no-ground-plane.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -37,7 +37,7 @@ MELDOG_CFG = ArticulationCfg(
             max_depenetration_velocity=1.0,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False,
+            enabled_self_collisions=True,
             solver_position_iteration_count=8,
             solver_velocity_iteration_count=0
         ),
@@ -58,9 +58,9 @@ MELDOG_CFG = ArticulationCfg(
             effort_limit=35.0, 
             saturation_effort=35.0, 
             
-            # Keeping the 25kg Logic: 55.0 / 1.5
-            stiffness=55.0,
-            damping=1.5,
+            # 0.25 ratio seen across other quadrupeds
+            stiffness=40.0,
+            damping=1.0,
             
             velocity_limit=18.9,
         )
@@ -78,8 +78,8 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.8, 0.8), # ANYmal Default
-            "dynamic_friction_range": (0.6, 0.6), # ANYmal Default
+            "static_friction_range": (0.8, 0.8), 
+            "dynamic_friction_range": (0.6, 0.6), 
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -90,7 +90,7 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
-            "mass_distribution_params": (-2.0, 3.0), # Adjusted for 25kg robot scale
+            "mass_distribution_params": (-1.0, 1.0), # ANYmal Default: +-5.0
             "operation": "add",
         },
     )
@@ -103,7 +103,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 20.0
     decimation = 4
-    action_scale = 0.5
+    action_scale = 0.35
     action_space = 12
     observation_space = 235
     state_space = 0
@@ -119,6 +119,11 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             static_friction=1.0,
             dynamic_friction=1.0,
             restitution=0.0,
+        ),
+        physx=sim_utils.PhysxCfg(
+            # increase for larger env count.
+            gpu_max_rigid_patch_count=5 * 2**17, 
+            gpu_max_rigid_contact_count=2**24,
         ),
     )
 
@@ -145,6 +150,17 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
 
+    def __post_init__(self):
+        super().__post_init__()
+        if self.terrain.terrain_generator is not None:
+            # Boxes: Default (0.05, 0.2)
+            self.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
+            # Roughness: Default (0.02, 0.10)
+            self.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.02, 0.06)
+            self.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
+            # Stairs: Default (0.05, 0.2)
+            self.terrain.terrain_generator.sub_terrains["pyramid_stairs"].step_height_range = (0.05, 0.1)
+            self.terrain.terrain_generator.sub_terrains["pyramid_stairs_inv"].step_height_range = (0.05, 0.1)
     # events
     events: EventCfg = EventCfg()
 
@@ -164,7 +180,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
         ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=False,
+        debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
 
@@ -201,20 +217,21 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         },
     )
 
-    target_base_height = 0.40 # Adjusted for Meldog size
+# -- KEY PARAMETERS -- 
 
-    # -- REWARDS (Standard ANYmal C Values) --
-    lin_vel_reward_scale = 1.0
-    yaw_rate_reward_scale = 0.5
-    z_vel_reward_scale = -2.0
-    ang_vel_reward_scale = -0.05
+    feet_air_time = 0.3
+
+# -- REWARDS --
+    lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
+    yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
+    z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
+    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
     
-    joint_torque_reward_scale = -2.5e-5 # ANYmal default
-    joint_accel_reward_scale = -2.5e-7  # ANYmal default
-    action_rate_reward_scale = -0.01    # ANYmal default
+    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -2.5e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
-    feet_air_time_reward_scale = 0.5
-    undesired_contact_reward_scale = -1.0
+    feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
+    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
     
-    # ANYmal rough config sets this to 0.0 because rough terrain is uneven
-    flat_orientation_reward_scale = 0.0
+    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
