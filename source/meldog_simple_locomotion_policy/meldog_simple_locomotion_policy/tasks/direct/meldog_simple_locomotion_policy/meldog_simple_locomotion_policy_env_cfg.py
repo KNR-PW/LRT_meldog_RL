@@ -1,6 +1,8 @@
 # Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import math
+import copy  # [!IMPORTANT] Added for deepcopy
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import DCMotorCfg
@@ -9,16 +11,21 @@ from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns, TiledCameraCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR 
+from isaaclab.utils.math import quat_from_euler_xyz
+
 
 # Imports for Visualization
 from isaaclab.markers import VisualizationMarkersCfg 
 
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
+
+def rpy_deg(r, p, y):
+    return quat_from_euler_xyz(math.radians(r), math.radians(p), math.radians(y))
 
 ##
 # Robot Definition
@@ -43,7 +50,7 @@ MELDOG_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, -0.1), # Negative because of badly created USD model
+        pos=(0.0, 0.0, -0.1), # Negative because of USD model origin
         joint_pos={
             "LFT_joint": 0.0, "LFH_joint": -0.6, "LFK_joint": 1.3,
             "RFT_joint": 0.0, "RFH_joint": -0.6, "RFK_joint": 1.3,
@@ -57,11 +64,8 @@ MELDOG_CFG = ArticulationCfg(
             joint_names_expr=[".*"],
             effort_limit=35.0, 
             saturation_effort=35.0, 
-            
-            # 0.25 ratio seen across other quadrupeds
             stiffness=40.0,
             damping=1.0,
-            
             velocity_limit=18.9,
         )
     },
@@ -90,10 +94,66 @@ class EventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="trunk_link"),
-            "mass_distribution_params": (-1.0, 1.0), # ANYmal Default: +-5.0
+            "mass_distribution_params": (-1.0, 1.0), 
             "operation": "add",
         },
     )
+
+##
+# Perception Configuration (Phase 1)
+# Defined as global variables to avoid class-attribute issues
+##
+
+# 1. Common Base Config
+_DEPTH_CAMERA_COMMON = TiledCameraCfg(
+    prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_.*",
+    update_period=0.05, 
+    height=60, width=106, # Optimization: Collect low-res directly? Or keep 240x424.
+    data_types=["distance_to_image_plane"], 
+    spawn=sim_utils.PinholeCameraCfg(
+        focal_length=1.93,     
+        focus_distance=4.0,
+        horizontal_aperture=3.8,
+        clipping_range=(0.2, 5.0),
+        visible=True, # [!IMPORTANT] Use this to see the wireframe!
+    ),
+)
+
+# 2. Front Camera
+CAMERA_FRONT = copy.deepcopy(_DEPTH_CAMERA_COMMON)
+CAMERA_FRONT.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_front"
+CAMERA_FRONT.offset = TiledCameraCfg.OffsetCfg(
+    pos=(0.4, 0.0, 0.04),
+    rot=(0.9659, 0.0, 0.2588, 0.0), # Euler (0, 30, 0)
+    convention="world",
+)
+
+# 3. Back Camera
+CAMERA_BACK = copy.deepcopy(_DEPTH_CAMERA_COMMON)
+CAMERA_BACK.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_rear"
+CAMERA_BACK.offset = TiledCameraCfg.OffsetCfg(
+    pos=(-0.4, 0.0, 0.04),
+    rot=(0.0, -0.2588, 0.0, 0.9659), # Euler (0, -30, 180)
+    convention="world",
+)
+
+# 4. Left Camera
+CAMERA_LEFT = copy.deepcopy(_DEPTH_CAMERA_COMMON)
+CAMERA_LEFT.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_left"
+CAMERA_LEFT.offset = TiledCameraCfg.OffsetCfg(
+    pos=(0.0, 0.16, 0.05),
+    rot=(0.683, -0.183, 0.183, 0.683), # Euler (-30, 0, 90)
+    convention="world",
+)
+
+# 5. Right Camera
+CAMERA_RIGHT = copy.deepcopy(_DEPTH_CAMERA_COMMON)
+CAMERA_RIGHT.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_right"
+CAMERA_RIGHT.offset = TiledCameraCfg.OffsetCfg(
+    pos=(0.0, -0.16, 0.05),
+    rot=(0.683, 0.183, 0.183, -0.683), # Euler (30, 0, -90)
+    convention="world",
+)
 
 ##
 # Env Config
@@ -121,7 +181,6 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             restitution=0.0,
         ),
         physx=sim_utils.PhysxCfg(
-            # increase for larger env count.
             gpu_max_rigid_patch_count=5 * 2**17, 
             gpu_max_rigid_contact_count=2**24,
         ),
@@ -153,12 +212,9 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         if self.terrain.terrain_generator is not None:
-            # Boxes: Default (0.05, 0.2)
             self.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
-            # Roughness: Default (0.02, 0.10)
             self.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.02, 0.06)
             self.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
-            # Stairs: Default (0.05, 0.2)
             self.terrain.terrain_generator.sub_terrains["pyramid_stairs"].step_height_range = (0.05, 0.1)
             self.terrain.terrain_generator.sub_terrains["pyramid_stairs_inv"].step_height_range = (0.05, 0.1)
     # events
@@ -168,6 +224,13 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     robot: ArticulationCfg = MELDOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     
     # sensors
+    # 1. Cameras (Using Global Definitions)
+    tiled_camera_front = CAMERA_FRONT
+    tiled_camera_rear = CAMERA_BACK
+    tiled_camera_left = CAMERA_LEFT
+    tiled_camera_right = CAMERA_RIGHT
+
+    # 2. Contact Sensors
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/meldog_core/.*link", 
         history_length=3, 
@@ -175,10 +238,11 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         track_air_time=True
     )
 
+    # 3. RayCaster (Ground Truth for Phase 3)
     height_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        ray_alignment="yaw",
+        attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
@@ -225,13 +289,13 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
     yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
     z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
-    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
+    ang_vel_reward_scale = -0.1             # ANYmal: -0.05, Unitree: -0.05
     
     joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
-    joint_accel_reward_scale = -2.5e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    joint_accel_reward_scale = -5.0e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
     action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
     feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
     undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
     
-    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
+    flat_orientation_reward_scale = -0.1    # ANYmal: 0.0,   Unitree: 0.0

@@ -9,7 +9,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
-from isaaclab.sensors import ContactSensor, RayCaster
+from isaaclab.sensors import ContactSensor, RayCaster, TiledCamera # [!UPDATED] Added TiledCamera
 
 # Visualization Imports
 from isaaclab.markers import VisualizationMarkers
@@ -28,7 +28,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._previous_actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Reward Logging
+        # Reward Logging (Matching ANYmal Standard)
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
@@ -63,6 +63,24 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._height_scanner = RayCaster(self.cfg.height_scanner)
         self.scene.sensors["height_scanner"] = self._height_scanner
         
+        # [!UPDATED] Initialize Cameras
+        # We check if they exist in cfg to avoid errors if you remove them later
+        if hasattr(self.cfg, "tiled_camera_front"):
+            self._tiled_camera_front = TiledCamera(self.cfg.tiled_camera_front)
+            self.scene.sensors["tiled_camera_front"] = self._tiled_camera_front
+            
+        if hasattr(self.cfg, "tiled_camera_rear"):
+            self._tiled_camera_rear = TiledCamera(self.cfg.tiled_camera_rear)
+            self.scene.sensors["tiled_camera_rear"] = self._tiled_camera_rear
+
+        if hasattr(self.cfg, "tiled_camera_left"):
+            self._tiled_camera_left = TiledCamera(self.cfg.tiled_camera_left)
+            self.scene.sensors["tiled_camera_left"] = self._tiled_camera_left
+
+        if hasattr(self.cfg, "tiled_camera_right"):
+            self._tiled_camera_right = TiledCamera(self.cfg.tiled_camera_right)
+            self.scene.sensors["tiled_camera_right"] = self._tiled_camera_right
+        
         # 3. Terrain Setup
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
@@ -85,7 +103,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         self._actions = actions.clone()
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
-        # Visualization Logic
+        # Visualization Logic (Restored from Original File)
         if self.cfg.debug_vis:
             robot_pos = self._robot.data.root_pos_w
             robot_quat = self._robot.data.root_quat_w
@@ -107,7 +125,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
             lin_arrow_scale[:, 1] = 0.5 
             lin_arrow_scale[:, 2] = 0.5 
             
-            # Angular (Green)
+            # Angular (Green) - RESTORED
             cmd_ang_local = torch.zeros(self.num_envs, 3, device=self.device)
             cmd_ang_local[:, 1] = self._commands[:, 2]
             cmd_ang_world = quat_apply(robot_quat, cmd_ang_local)
@@ -132,7 +150,7 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
                 scales=ang_arrow_scale
             )
 
-            # 2. Contact Markers
+            # 2. Contact Markers - RESTORED
             raw_forces = self._contact_sensor.data.net_forces_w_history[:, :, self._undesired_contact_body_ids]
             force_magnitudes = torch.max(torch.norm(raw_forces, dim=-1), dim=1)[0]
             contact_mask = force_magnitudes > 1.0
@@ -152,11 +170,15 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         self._previous_actions = self._actions.clone()
         
+        # [NOTE] This is where we access RayCaster data for the map
         height_data = (
             self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - 
             self._height_scanner.data.ray_hits_w[..., 2] - 
             0.5
         ).clip(-1.0, 1.0)
+        
+        # [NOTE] TiledCamera data is available here if needed:
+        # front_depth = self._tiled_camera_front.data.output["distance_to_image_plane"]
         
         obs = torch.cat(
             [
