@@ -108,7 +108,7 @@ class EventCfg:
 _DEPTH_CAMERA_COMMON = TiledCameraCfg(
     prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_.*",
     update_period=0.05, 
-    height=60, width=106, # Optimization: Collect low-res directly? Or keep 240x424.
+    height=240, width=424, # Optimization: Collect low-res directly? Or keep 240x424.
     data_types=["distance_to_image_plane"], 
     spawn=sim_utils.PinholeCameraCfg(
         focal_length=1.93,     
@@ -291,11 +291,11 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
     ang_vel_reward_scale = -0.1             # ANYmal: -0.05, Unitree: -0.05
     
-    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
-    joint_accel_reward_scale = -5.0e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    joint_torque_reward_scale = -120e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -5.e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
     action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
-    feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
+    feet_air_time_reward_scale = 0.5        # ANYmal: 0.5,   Unitree: 0.01
     undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
     
     flat_orientation_reward_scale = -0.1    # ANYmal: 0.0,   Unitree: 0.0
