@@ -4,7 +4,8 @@ Dataset Collector for Meldog
 - Captures: 4x Depth Cameras + Robot State + Ground Truth.
 - Saves valid episodes (filtered by length) to HDF5.
 - Records a FIXED LENGTH debug video (1000 frames) of Env 0.
-- [FIXED] Saves Depth as UINT16 (mm). Sky/Infinity is saved as 0 (Standard "No Data").
+- [FIXED] Video Aspect Ratio matches Dataset (16:9, 848x480).
+- [FIXED] Depth Saved as UINT16 (mm). Sky/Inf -> 0.
 """
 
 import argparse
@@ -43,19 +44,16 @@ import isaaclab_rl.rsl_rl as rsl_rl_utils
 from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
 from rsl_rl.runners import OnPolicyRunner
 
-# Import your custom task to register it
 import meldog_simple_locomotion_policy.tasks
 
-def process_depth(tensor_img, label, width=640, height=480):
+def process_depth(tensor_img, label, width=424, height=240):
     """Normalize depth tensor, colorize, and add label."""
     img = tensor_img.squeeze().cpu().numpy()
     
-    # Handle Sky/Infinity for VISUALIZATION ONLY
-    # We map Sky to 5.0m just so it looks red (far) instead of black (close) in the video.
-    # This does not affect the saved H5 data (which uses 0 for sky).
+    # Handle Sky/Infinity for VISUALIZATION ONLY (Red)
     img[np.isinf(img)] = 5.0
     img[img > 5.0] = 5.0
-    img[img <= 0] = 5.0 # Treat simulation glitches (negative/zero) as far
+    img[img <= 0] = 5.0 
     
     # Normalize 0-5m -> 0-255
     norm_img = np.clip(img, 0, 5.0) / 5.0 * 255
@@ -63,12 +61,14 @@ def process_depth(tensor_img, label, width=640, height=480):
     
     # Colorize
     color_img = cv2.applyColorMap(norm_img, cv2.COLORMAP_JET)
+    
+    # Resize to native 16:9 resolution (424x240)
     color_img = cv2.resize(color_img, (width, height))
     
-    # Add Label
+    # Add Label (Smaller font for smaller resolution)
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(color_img, label, (20, 50), font, 1.0, (0, 0, 0), 4)
-    cv2.putText(color_img, label, (20, 50), font, 1.0, (255, 255, 255), 2)
+    cv2.putText(color_img, label, (10, 30), font, 0.6, (0, 0, 0), 3)
+    cv2.putText(color_img, label, (10, 30), font, 0.6, (255, 255, 255), 1)
     return color_img
 
 def main():
@@ -106,11 +106,12 @@ def main():
         for _ in range(args_cli.num_envs)
     ]
 
+    # [FIXED] Resolution: 2x 424 width, 2x 240 height -> 848x480
     video_path = os.path.join(save_dir, "preview.mp4")
     video_writer = cv2.VideoWriter(
         video_path,
         cv2.VideoWriter_fourcc(*'mp4v'),
-        20, (1280, 960) 
+        20, (848, 480) 
     )
     
     video_frames = 0
@@ -165,10 +166,11 @@ def main():
                 buffers[i]["cmd"].append(cmd[i].cpu().numpy())
 
                 if i == 0 and not video_finished:
-                    img_front = process_depth(d_front[i], "Front")
-                    img_rear  = process_depth(d_rear[i],  "Rear")
-                    img_left  = process_depth(d_left[i],  "Left")
-                    img_right = process_depth(d_right[i], "Right")
+                    # [FIXED] Use native 424x240 resolution
+                    img_front = process_depth(d_front[i], "Front", 424, 240)
+                    img_rear  = process_depth(d_rear[i],  "Rear",  424, 240)
+                    img_left  = process_depth(d_left[i],  "Left",  424, 240)
+                    img_right = process_depth(d_right[i], "Right", 424, 240)
 
                     top_row = np.hstack((img_front, img_rear))
                     bot_row = np.hstack((img_left, img_right))
@@ -176,12 +178,15 @@ def main():
                     
                     overlay_text = f"Dataset: {full_dataset_name}"
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    text_size = cv2.getTextSize(overlay_text, font, 1.0, 2)[0]
+                    text_size = cv2.getTextSize(overlay_text, font, 0.6, 1)[0]
                     text_x = (full_frame.shape[1] - text_size[0]) // 2
-                    text_y = 930 
+                    
+                    # [FIXED] Adjust text Y position for 480px height
+                    text_y = 460 
 
-                    cv2.putText(full_frame, overlay_text, (text_x, text_y), font, 1.0, (0, 0, 0), 4)
-                    cv2.putText(full_frame, overlay_text, (text_x, text_y), font, 1.0, (255, 255, 255), 2)
+                    cv2.putText(full_frame, overlay_text, (text_x, text_y), font, 0.6, (0, 0, 0), 3)
+                    cv2.putText(full_frame, overlay_text, (text_x, text_y), font, 0.6, (255, 255, 255), 1)
+                    
                     video_writer.write(full_frame)
                     video_frames += 1
 
@@ -196,22 +201,13 @@ def main():
                         grp_name = f"episode_{collected_episodes}"
                         grp = h5file.create_group(grp_name)
                         
-                        # --- FIXED SAVE LOGIC ---
-                        # Maps Infinity/Sky -> 0 (Standard "No Data")
+                        # --- H5 SAVING (UInt16 + Gzip) ---
                         def to_uint16_mm(data_list):
                             arr = np.array(data_list, dtype=np.float32)
-                            
-                            # 1. Mask out Infinity and anything > 20 meters (Safety threshold)
-                            # You can adjust 20.0 to your sensor's max effective range
+                            # Mask invalid data
                             mask_invalid = np.isinf(arr) | (arr > 20.0) | (arr <= 0.0)
-                            
-                            # 2. Convert valid data to mm
                             arr = arr * 1000.0
-                            
-                            # 3. Apply mask: Set invalid pixels to 0
                             arr[mask_invalid] = 0
-                            
-                            # 4. Cast to UInt16
                             return arr.astype(np.uint16)
 
                         def to_int16_mm(data_list):
