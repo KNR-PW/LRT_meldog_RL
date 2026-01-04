@@ -62,25 +62,48 @@ class MeldogSimpleLocomotionPolicyEnv(DirectRLEnv):
         
         self._height_scanner = RayCaster(self.cfg.height_scanner)
         self.scene.sensors["height_scanner"] = self._height_scanner
+
+        if hasattr(self.cfg, "gt_scanner") and self.cfg.gt_scanner is not None:
+            self._gt_scanner = RayCaster(self.cfg.gt_scanner)
+            self.scene.sensors["gt_scanner"] = self._gt_scanner
         
-        # [!UPDATED] Initialize Cameras
-        # We check if they exist in cfg to avoid errors if you remove them later
-        if hasattr(self.cfg, "tiled_camera_front"):
+        # 3. Cameras (Conditional)
+        if self.cfg.tiled_camera_front is not None:
             self._tiled_camera_front = TiledCamera(self.cfg.tiled_camera_front)
-            self.scene.sensors["tiled_camera_front"] = self._tiled_camera_front
-            
-        if hasattr(self.cfg, "tiled_camera_rear"):
+            # [FIX] Register with scene manager!
+            self.scene.sensors["tiled_camera_front"] = self._tiled_camera_front 
+        else:
+            self._tiled_camera_front = None
+
+        if self.cfg.tiled_camera_rear is not None:
             self._tiled_camera_rear = TiledCamera(self.cfg.tiled_camera_rear)
+            # [FIX] Register with scene manager!
             self.scene.sensors["tiled_camera_rear"] = self._tiled_camera_rear
+        else:
+            self._tiled_camera_rear = None
 
-        if hasattr(self.cfg, "tiled_camera_left"):
+        if self.cfg.tiled_camera_left is not None:
             self._tiled_camera_left = TiledCamera(self.cfg.tiled_camera_left)
+            # [FIX] Register with scene manager!
             self.scene.sensors["tiled_camera_left"] = self._tiled_camera_left
+        else:
+            self._tiled_camera_left = None
 
-        if hasattr(self.cfg, "tiled_camera_right"):
+        if self.cfg.tiled_camera_right is not None:
             self._tiled_camera_right = TiledCamera(self.cfg.tiled_camera_right)
+            # [FIX] Register with scene manager!
             self.scene.sensors["tiled_camera_right"] = self._tiled_camera_right
-        
+        else:
+            self._tiled_camera_right = None
+
+        if getattr(self.cfg, "tiled_camera_top", None) is not None:
+            self._tiled_camera_top = TiledCamera(self.cfg.tiled_camera_top)
+            # Register with scene manager!
+            self.scene.sensors["tiled_camera_top"] = self._tiled_camera_top
+        else:
+            self._tiled_camera_top = None
+
+            
         # 3. Terrain Setup
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing

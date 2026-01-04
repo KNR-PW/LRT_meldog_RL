@@ -24,8 +24,10 @@ from isaaclab.markers import VisualizationMarkersCfg
 
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
-def rpy_deg(r, p, y):
-    return quat_from_euler_xyz(math.radians(r), math.radians(p), math.radians(y))
+# [!IMPORTANT] GLOBAL TOGGLE FOR CAMERAS
+# Set True for Data Collection / Debugging
+# Set False for Training (Blind Policy)
+ENABLE_CAMERAS = True 
 
 ##
 # Robot Definition
@@ -114,7 +116,7 @@ _DEPTH_CAMERA_COMMON = TiledCameraCfg(
         focal_length=1.93,     
         focus_distance=4.0,
         horizontal_aperture=3.8,
-        clipping_range=(0.2, 5.0),
+        clipping_range=(0.01, 5.0),
         visible=True, # [!IMPORTANT] Use this to see the wireframe!
     ),
 )
@@ -152,6 +154,16 @@ CAMERA_RIGHT.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera
 CAMERA_RIGHT.offset = TiledCameraCfg.OffsetCfg(
     pos=(0.0, -0.16, 0.05),
     rot=(0.683, 0.183, 0.183, -0.683), # Euler (30, 0, -90)
+    convention="world",
+)
+
+# 6. Top-Down Camera (Bird's Eye View)
+CAMERA_TOP = copy.deepcopy(_DEPTH_CAMERA_COMMON)
+CAMERA_TOP.prim_path = "/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_top"
+CAMERA_TOP.data_types = ["rgb"]
+CAMERA_TOP.offset = TiledCameraCfg.OffsetCfg(
+    pos=(0.0, 0.0, 2.0), # 0.8m above the trunk
+    rot=(0.7071, 0.0, 0.7071, 0.0), # Pitch 90 degrees down (Looking at the back of the robot)
     convention="world",
 )
 
@@ -198,6 +210,7 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
             restitution_combine_mode="multiply",
             static_friction=1.0,
             dynamic_friction=1.0,
+            restitution=0.0,
         ),
         visual_material=sim_utils.MdlFileCfg(
             mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
@@ -224,28 +237,48 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     robot: ArticulationCfg = MELDOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     
     # sensors
-    # 1. Cameras (Using Global Definitions)
-    tiled_camera_front = CAMERA_FRONT
-    tiled_camera_rear = CAMERA_BACK
-    tiled_camera_left = CAMERA_LEFT
-    tiled_camera_right = CAMERA_RIGHT
+    # Cameras (Conditional Loading)
+    if ENABLE_CAMERAS:
+        tiled_camera_front = CAMERA_FRONT
+        tiled_camera_rear = CAMERA_BACK
+        tiled_camera_left = CAMERA_LEFT
+        tiled_camera_right = CAMERA_RIGHT
+        tiled_camera_top = CAMERA_TOP
+    else:
+        # Setting to None effectively removes them from the scene config
+        tiled_camera_front = None
+        tiled_camera_rear = None
+        tiled_camera_left = None
+        tiled_camera_right = None
+        tiled_camera_top = None
 
-    # 2. Contact Sensors
+    # Contact Sensors
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/meldog_core/.*link", 
         history_length=3, 
         update_period=0.005, 
-        track_air_time=True
+        track_air_time=True,
+        force_threshold=0.5
     )
 
-    # 3. RayCaster (Ground Truth for Phase 3)
+    # RayCaster (for locomotion policy)
     height_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=True,
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"],
+    )
+
+    # 3. RayCaster (for Dataset)
+    gt_scanner = RayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link",
+        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 10.0)), # Look from 10m above
+        attach_yaw_only=True, # Align with robot heading, but stay upright
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(2.0, 2.0)), # 5cm res, 2m box
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"], # Only see the terrain
     )
 
     # Visualization Markers
@@ -289,13 +322,13 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
     yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
     z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
-    ang_vel_reward_scale = -0.1             # ANYmal: -0.05, Unitree: -0.05
+    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
     
-    joint_torque_reward_scale = -120e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
-    joint_accel_reward_scale = -5.e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -2.5e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
     action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
-    feet_air_time_reward_scale = 0.5        # ANYmal: 0.5,   Unitree: 0.01
+    feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
     undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
     
-    flat_orientation_reward_scale = -0.1    # ANYmal: 0.0,   Unitree: 0.0
+    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
