@@ -3,6 +3,7 @@ Dataset Collector for Meldog
 - Captures: 4x Depth + 1x RGB Top (Video only) + Raycast.
 - [FIX] Flushes remaining data at the end so you get exactly 'max_steps' of data.
 - [FIX] Refactored saving logic to handle both 'done' and 'time_limit'.
+- [FIX] Corrected gt_scanner height calculation (removed offset subtraction).
 """
 
 import argparse
@@ -54,6 +55,7 @@ def process_depth(tensor_img, label, width=424, height=240):
 
 def process_raycast(tensor_scan, label="Raycast", target_h=240, target_w=424):
     hm = tensor_scan.squeeze().cpu().numpy()
+    # Normalize for visualization (-1m to 1m range typically)
     hm_norm = np.clip(hm, -1.0, 1.0)
     hm_norm = (hm_norm + 1.0) / 2.0 * 255.0
     hm_uint8 = hm_norm.astype(np.uint8)
@@ -76,7 +78,15 @@ def main():
 
     print(f"[INFO] Creating environment: {args_cli.task}")
     env = gym.make(args_cli.task, cfg=env_cfg)
-    env = rsl_rl_utils.RslRlVecEnvWrapper(env)
+    
+    # Retrieve clip_actions from the agent config
+    clip_val = 1.0 
+    if isinstance(agent_cfg, dict) and "clip_actions" in agent_cfg:
+        clip_val = agent_cfg["clip_actions"]
+    elif hasattr(agent_cfg, "clip_actions"):
+        clip_val = agent_cfg.clip_actions
+    
+    env = rsl_rl_utils.RslRlVecEnvWrapper(env, clip_actions=clip_val)
 
     print(f"[INFO] Loading policy from: {args_cli.checkpoint}")
     runner = OnPolicyRunner(env, agent_cfg, log_dir=None, device=args_cli.device)
@@ -109,7 +119,6 @@ def main():
     raw_env = env.unwrapped
     obs = env.get_observations()
     
-    # mutable list for the counter so the inner function can modify it
     episode_counter = [0] 
     step_count = 0
     
@@ -119,7 +128,7 @@ def main():
         def save_episode_to_h5(env_idx, force_save=False):
             ep_len = len(buffers[env_idx]["depth_front"])
             
-            # Save if length is sufficient OR if we are forcing a save (end of script)
+            # Save if length is sufficient OR if we are forcing a save
             if ep_len >= args_cli.min_episode_len or (force_save and ep_len > 0):
                 grp_name = f"episode_{episode_counter[0]}"
                 grp = h5file.create_group(grp_name)
@@ -168,14 +177,24 @@ def main():
                 print("[ERROR] Cameras not found! Check env config and env.py.")
                 break
 
+            # --- HEIGHT SCANNER LOGIC ---
             if hasattr(raw_env, "_gt_scanner") and raw_env._gt_scanner is not None:
                 ray_hits_w = raw_env._gt_scanner.data.ray_hits_w
-                robot_z = raw_env._robot.data.root_pos_w[:, 2].unsqueeze(1) 
+                
+                # [FIXED] Use pos_w directly. 
+                # Since pos_w usually tracks the body it's attached to (trunk_link),
+                # we do NOT subtract the offset here.
+                trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
+                
                 hit_z = ray_hits_w[..., 2]                                  
-                gt_scan = hit_z - robot_z 
+                gt_scan = hit_z - trunk_z 
+                
+                # Reshape
                 num_rays = gt_scan.shape[1]
                 grid_side = int(np.sqrt(num_rays))
                 gt_scan = gt_scan.view(args_cli.num_envs, grid_side, grid_side)
+                
+                # Clamp for safety (-5.0m to 5.0m) before saving
                 gt_scan = torch.clamp(gt_scan, -5.0, 5.0)
                 
                 # [TRANSFORMS]
@@ -183,6 +202,7 @@ def main():
                 gt_scan = torch.flip(gt_scan, dims=[-2, -1]) 
             else:
                 gt_scan = torch.zeros((args_cli.num_envs, 1, 1), device=env.device) 
+            # ----------------------------
 
             vel = raw_env._robot.data.root_lin_vel_b.clone() 
             cmd = raw_env._commands.clone()                  
