@@ -274,8 +274,9 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
     # 3. RayCaster (for Dataset)
     gt_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link",
-        offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 10.0)), # Look from 10m above
-        attach_yaw_only=True, # Align with robot heading, but stay upright
+        offset=RayCasterCfg.OffsetCfg(
+            pos=(0.0, 0.0, 10.0)),
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(2.0, 2.0)), # 5cm res, 2m box
         debug_vis=True,
         mesh_prim_paths=["/World/ground"], # Only see the terrain
