@@ -277,8 +277,9 @@ class MeldogSimpleLocomotionPolicyEnvCfg(DirectRLEnvCfg):
         offset=RayCasterCfg.OffsetCfg(
             pos=(0.0, 0.0, 10.0)),
         ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(2.0, 2.0)), # 5cm res, 2m box
-        debug_vis=True,
+         # 5cm res, 2m box, decreased to get 40x40 instead of 41x41
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=(1.95, 1.95)),
+        debug_vis=False,
         mesh_prim_paths=["/World/ground"], # Only see the terrain
     )
 
