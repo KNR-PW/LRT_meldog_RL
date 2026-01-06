@@ -55,7 +55,7 @@ import meldog_simple_locomotion_policy.tasks
 # -----------------------------------------------------------------------------
 # MODEL CLASS DEFINITION
 # -----------------------------------------------------------------------------
-MAP_SIZE = 40
+MAP_SIZE = 40 # [FIX] Strictly 40x40
 IMG_H, IMG_W = 120, 212
 
 class SimpleMapper(nn.Module):
@@ -96,8 +96,11 @@ def process_inputs(d_front, d_rear, d_left, d_right, quat_raw):
     stack = torch.cat([d_front, d_rear, d_left, d_right], dim=-1).permute(0, 3, 1, 2)
     # Resize
     stack = F.interpolate(stack, size=(IMG_H, IMG_W), mode='bilinear', align_corners=False)
-    # Scale (m -> normalized input)
-    stack = torch.clamp(stack, 0, 5.0) * 0.2 
+    
+    # [FIX] Clamp > 5.0m to 5.0m
+    stack = torch.clamp(stack, 0, 5.0) 
+    # Scale (0..5m -> 0..1.0)
+    stack = stack * 0.2 
 
     # Gravity
     w, x, y, z = quat_raw[:, 0], quat_raw[:, 1], quat_raw[:, 2], quat_raw[:, 3]
@@ -117,9 +120,10 @@ TARGET_H = 240
 def process_image(img_tensor, title, colormap=cv2.COLORMAP_JET, is_depth=True):
     img = img_tensor.squeeze().cpu().numpy()
     if is_depth:
+        # [FIX] Visualizing depth consistently with training (max 5.0)
         img[np.isinf(img)] = 5.0
         img[img > 5.0] = 5.0
-        img[img <= 0] = 5.0
+        img[img <= 0] = 5.0 # Invalid/Close -> 5.0 (Treat as Far)
         norm_img = np.clip(img, 0, 5.0) / 5.0 * 255
     else:
         norm_img = np.clip(img, 0, 255) if img.max() > 1.0 else img * 255
@@ -173,15 +177,17 @@ class DummyPerceptionModel:
     def __call__(self, depth_inputs, gt_map=None):
         if gt_map is not None:
             return gt_map.clone()
-        return torch.zeros((depth_inputs.shape[0], 41, 41), device=depth_inputs.device)
+        # [FIX] Return strictly 40x40
+        return torch.zeros((depth_inputs.shape[0], MAP_SIZE, MAP_SIZE), device=depth_inputs.device)
 
 # -----------------------------------------------------------------------------
-# SAVING HELPERS (Direct Copy from collect_dataset.py)
+# SAVING HELPERS
 # -----------------------------------------------------------------------------
 def to_uint16_mm(data_list):
     arr = np.array(data_list, dtype=np.float32)
-    # [!] Matching collect_dataset.py strict filtering
-    arr[np.isinf(arr) | (arr > 20.0) | (arr <= 0.0)] = 0
+    # [FIX] Match collect_dataset.py: > 5.0 -> 5.0
+    invalid_mask = np.isinf(arr) | (arr > 5.0) | (arr <= 0.0)
+    arr[invalid_mask] = 5.0
     return (arr * 1000.0).astype(np.uint16)
 
 def to_int16_mm(data_list):
@@ -254,7 +260,8 @@ def main():
     recon_vis.set_visibility(True)
 
     grid_res = 0.05
-    grid_size = 40 
+    # [FIX] Sync grid size with MAP_SIZE
+    grid_size = MAP_SIZE 
     x = torch.arange(grid_size, device=env.device) * grid_res - 1.0
     y = torch.arange(grid_size, device=env.device) * grid_res - 1.0
     grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
@@ -297,6 +304,8 @@ def main():
                     robot_quat = raw_env._robot.data.root_quat_w
                     stack, grav = process_inputs(d_front, d_rear, d_left, d_right, robot_quat)
                     pred_scan = perception_model(stack, grav).squeeze(1) # (B, 40, 40)
+                    
+                    # [FIX] Robust resize if GT and Pred differ
                     if pred_scan.shape[-1] != gt_scan.shape[-1]:
                          pred_scan = F.interpolate(pred_scan.unsqueeze(1), size=gt_scan.shape[-2:], mode='nearest').squeeze(1)
                 except Exception as e:
@@ -305,7 +314,6 @@ def main():
 
             diff_scan = torch.abs(gt_scan - pred_scan)
 
-            # [FIX] Append Data using .squeeze() (Matches collect_dataset.py)
             idx = 0
             data_buffer["depth_front"].append(d_front[idx].squeeze().cpu().numpy())
             data_buffer["depth_rear"].append(d_rear[idx].squeeze().cpu().numpy())
@@ -355,7 +363,7 @@ def main():
     print(f"[INFO] Video saved to {video_path}")
     
     # -------------------------------------------------------------------------
-    # [FIX] SAVING LOGIC (Matching collect_dataset.py)
+    # SAVING LOGIC
     # -------------------------------------------------------------------------
     print(f"[INFO] Saving HDF5 to {data_path}...")
     with h5py.File(data_path, 'w') as f:

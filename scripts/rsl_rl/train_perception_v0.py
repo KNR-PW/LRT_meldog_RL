@@ -1,5 +1,5 @@
 """
-Train Perception V1: CLI Optimized
+Train Perception V1: Fixed 40x40 & 5m Cap
 - Hardware: RTX 4090 + Ryzen 9950X
 - Usage: python train.py --checkpoint "logs/.../model.pt"
 """
@@ -20,7 +20,7 @@ from datetime import datetime
 
 # --- DIMENSIONS ---
 IMG_H, IMG_W = 120, 212   
-MAP_SIZE = 40
+MAP_SIZE = 40  # [FIX] Strictly 40x40
 
 # --- DATASET ---
 class MeldogDataset(Dataset):
@@ -64,13 +64,23 @@ class GPUProcessor(nn.Module):
 
     def forward(self, stack_raw, quat_raw, target_raw):
         # Images: (B, 4, H, W) -> Resize -> Norm
+        # Input is uint16 mm. Convert to float meters.
         stack = stack_raw.float() * 0.001 
+        
+        # [FIX] Clamp > 5.0 to 5.0 immediately to remove artifacts
+        stack = torch.clamp(stack, 0, 5.0)
+
         stack = F.interpolate(stack, size=(IMG_H, IMG_W), mode='bilinear', align_corners=False)
-        stack = torch.clamp(stack, 0, 5.0) * 0.2 
+        
+        # Normalize: 0..5m -> 0..1.0
+        stack = stack * 0.2 
 
         # Target: (B, H, W) -> Resize
+        # Input is int16 mm. Convert to float meters.
         target = target_raw.float() * 0.001
         target = target.unsqueeze(1) 
+        
+        # [FIX] Ensure target is exactly MAP_SIZE (40)
         if target.shape[-1] != MAP_SIZE:
             target = F.interpolate(target, size=(MAP_SIZE, MAP_SIZE), mode='bilinear', align_corners=False)
 
@@ -168,7 +178,9 @@ def main(args):
     
     gpu_processor = GPUProcessor().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.MSELoss()
+    
+    # [FIX] Use L1 Loss for sharper terrain reconstruction
+    criterion = nn.L1Loss() 
     scaler = GradScaler() 
 
     print(f"[INFO] Starting Training with Batch={args.batch_size}, Workers={args.workers}")

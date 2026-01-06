@@ -116,7 +116,8 @@ def main():
                 
                 def to_uint16_mm(data_list):
                     arr = np.array(data_list, dtype=np.float32)
-                    arr[np.isinf(arr) | (arr > 20.0) | (arr <= 0.0)] = 0
+                    invalid_mask = np.isinf(arr) | (arr > 5.0) | (arr <= 0.0)
+                    arr[invalid_mask] = 5.0
                     return (arr * 1000.0).astype(np.uint16)
 
                 def to_int16_mm(data_list):
