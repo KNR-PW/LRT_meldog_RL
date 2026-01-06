@@ -1,7 +1,7 @@
 """
-Train Perception V1: Fixed 40x40, 5m Cap, Absolute Epochs & Replicate Padding
+Train Perception V2: Sparse 2.5D Map Pre-processing
 - Hardware: RTX 4090 + Ryzen 9950X
-- Usage: python train_perception_v0.py --checkpoint "logs/.../model_ep10.pt" --epochs 50
+- Pipeline: Raw Depth -> DepthProjector (GPU) -> Sparse Map -> Refinement Net -> Dense Height Map
 """
 
 import os
@@ -19,9 +19,13 @@ from tqdm import tqdm
 from datetime import datetime
 import re
 
-# --- DIMENSIONS ---
-IMG_H, IMG_W = 120, 212   
-MAP_SIZE = 40  # [FIX] Strictly 40x40
+# Import the projector logic
+# Ensure preprocess_perception.py is in the same directory
+from preprocess_perception import DepthProjector 
+
+# --- CONFIGURATION ---
+MAP_SIZE = 40  # 40x40 Grid
+MAP_RES = 0.05 # 5cm Resolution
 
 # --- DATASET ---
 class MeldogDataset(Dataset):
@@ -48,92 +52,133 @@ class MeldogDataset(Dataset):
         ep_name, step_idx = self.index_map[idx]
         grp = self.h5_file[ep_name]
         
+        # Load Raw Depth (mm uint16) -> Convert to Meters later
         d_front = grp["depth_front"][step_idx]
         d_rear  = grp["depth_rear"][step_idx]
         d_left  = grp["depth_left"][step_idx]
         d_right = grp["depth_right"][step_idx]
+        
+        # Load GT Height (mm int16)
         target  = grp["gt_height"][step_idx]
-        quat    = grp["robot_quat"][step_idx] 
+        
+        # Load Robot Pose (Optional, but good for gravity embedding context)
+        quat = grp["robot_quat"][step_idx] 
 
         stack = np.stack([d_front, d_rear, d_left, d_right], axis=0)
         return stack, quat, target
 
 # --- GPU PRE-PROCESSOR ---
 class GPUProcessor(nn.Module):
-    def __init__(self):
+    def __init__(self, device='cuda'):
         super().__init__()
+        self.device = device
+        # Initialize the Geometric Projector
+        self.projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=device)
 
     def forward(self, stack_raw, quat_raw, target_raw):
-        # Images: (B, 4, H, W) -> Resize -> Norm
-        stack = stack_raw.float() * 0.001 
-        stack = torch.clamp(stack, 0, 5.0) # Clamp max range
-        stack = F.interpolate(stack, size=(IMG_H, IMG_W), mode='bilinear', align_corners=False)
-        stack = stack * 0.2 # Norm 0..1
+        """
+        Args:
+            stack_raw: (B, 4, H, W) uint16 in mm
+            quat_raw: (B, 4)
+            target_raw: (B, 40, 40) int16 in mm
+        Returns:
+            sparse_map: (B, 1, 40, 40) normalized/meters
+            grav_vec: (B, 3)
+            target: (B, 1, 40, 40) meters
+        """
+        # 1. Prepare Depth Stack (mm -> meters)
+        # (B, 4, H, W)
+        depth_stack = stack_raw.float() * 0.001 
+        
+        # 2. Run Geometric Projection
+        # Returns (B, 1, 40, 40) with values in meters (approx -1.0 to 1.0 relative to robot)
+        # We wrap in no_grad because projection is a fixed geometric operation, not learned.
+        with torch.no_grad():
+            sparse_map = self.projector(depth_stack)
 
-        # Target: (B, H, W) -> Resize
+        # 3. Prepare Target
         target = target_raw.float() * 0.001
-        target = target.unsqueeze(1) 
-        if target.shape[-1] != MAP_SIZE:
-            # [FIX] Use 'area' interpolation for maps to avoid aliasing/jagged edges
-            target = F.interpolate(target, size=(MAP_SIZE, MAP_SIZE), mode='area')
+        target = target.unsqueeze(1) # (B, 1, 40, 40)
 
-        # Gravity: (B, 4) -> (B, 3)
+        # 4. Prepare Gravity Vector
         w, x, y, z = quat_raw[:, 0], quat_raw[:, 1], quat_raw[:, 2], quat_raw[:, 3]
         gx = -2 * (x*z + w*y)
         gy = -2 * (y*z - w*x)
         gz = -(1 - 2 * (x*x + y*y))
         grav_vec = torch.stack([gx, gy, gz], dim=1)
 
-        return stack, grav_vec, target
+        return sparse_map, grav_vec, target
 
-# --- MODEL ---
-class SimpleMapper(nn.Module):
+# --- MODEL: SPARSE MAP REFINER ---
+# Modified to accept 1-channel Sparse Map input
+class SparseMapRefiner(nn.Module):
     def __init__(self):
         super().__init__()
-        self.enc1 = self.conv_block(4, 32)
-        self.enc2 = self.conv_block(32, 64)
-        self.enc3 = self.conv_block(64, 128)
-        self.enc4 = self.conv_block(128, 256)
-        self.mlp_gravity = nn.Sequential(nn.Linear(3, 64), nn.ReLU(), nn.Linear(64, 64))
-        self.dec1 = self.up_block(256, 128)
-        self.dec2 = self.up_block(128, 64)
-        self.dec3 = self.up_block(64, 32)
-        self.final_conv = nn.Conv2d(32, 1, kernel_size=1)
-        self.final_resize = nn.AdaptiveAvgPool2d((MAP_SIZE, MAP_SIZE))
+        # Encoder: Input 1 Channel (Sparse Map)
+        self.enc1 = self.conv_block(1, 32)   # 40 -> 20
+        self.enc2 = self.conv_block(32, 64)  # 20 -> 10
+        self.enc3 = self.conv_block(64, 128) # 10 -> 5 (Bottleneck)
+        
+        # Gravity Injection Network
+        self.mlp_gravity = nn.Sequential(
+            nn.Linear(3, 32), 
+            nn.ReLU(), 
+            nn.Linear(32, 32)
+        )
+
+        # Decoder (Refinement)
+        self.dec1 = self.up_block(128 + 32, 64) # +32 for gravity | 5 -> 10
+        self.dec2 = self.up_block(64, 32)       # 10 -> 20
+        
+        # Final reconstruction
+        self.final_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) # 20 -> 40
+        self.final_conv = nn.Conv2d(32, 1, kernel_size=3, padding=1) # 40 -> 40
 
     def conv_block(self, in_c, out_c):
-        # [FIX] padding_mode='replicate' fixes the weird border artifacts!
         return nn.Sequential(
             nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
             nn.BatchNorm2d(out_c), 
             nn.ReLU(), 
-            nn.MaxPool2d(2)
+            nn.MaxPool2d(2) # Downsample
         )
 
     def up_block(self, in_c, out_c):
-        # [FIX] padding_mode='replicate' here too
         return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), # Upsample
             nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
             nn.BatchNorm2d(out_c), 
             nn.ReLU()
         )
 
     def forward(self, x, grav):
-        x = self.enc4(self.enc3(self.enc2(self.enc1(x))))
-        B, C, H, W = x.shape
-        grav_embed = self.mlp_gravity(grav).unsqueeze(-1).unsqueeze(-1).expand(B, 64, H, W)
-        x = torch.cat([x, grav_embed], dim=1)
-        x = nn.Conv2d(256+64, 256, 1).to(x.device)(x)
-        x = self.final_resize(self.final_conv(self.dec3(self.dec2(self.dec1(x)))))
-        return x
+        # x: (B, 1, 40, 40)
+        e1 = self.enc1(x)  # -> (32, 20, 20)
+        e2 = self.enc2(e1) # -> (64, 10, 10)
+        e3 = self.enc3(e2) # -> (128, 5, 5)
+
+        # Process Gravity
+        B, _, H, W = e3.shape
+        grav_embed = self.mlp_gravity(grav).unsqueeze(-1).unsqueeze(-1).expand(B, 32, H, W)
+        
+        # Concatenate Gravity at bottleneck
+        bottleneck = torch.cat([e3, grav_embed], dim=1) # (160, 5, 5)
+
+        # Decode
+        d1 = self.dec1(bottleneck) # -> (64, 10, 10)
+        d2 = self.dec2(d1)         # -> (32, 20, 20)
+        
+        # Final Output
+        out = self.final_upsample(d2) # -> (32, 40, 40)
+        out = self.final_conv(out)    # -> (1, 40, 40)
+        
+        return out
 
 # --- MAIN TRAINING LOOP ---
 def main(args):
     # Logging Setup
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     prefix = "RESUME_" if args.checkpoint else ""
-    run_name = f"PM_v0_{prefix}{timestamp}"
+    run_name = f"PM_v2_Sparse_{prefix}{timestamp}"
     save_dir = os.path.join("logs", "perception", run_name)
     
     os.makedirs(save_dir, exist_ok=True)
@@ -161,6 +206,8 @@ def main(args):
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
     
+    # Batch size can likely be slightly lower than before because projection adds some VRAM overhead, 
+    # but since inputs to the ConvNet are tiny (40x40), it balances out.
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
                               num_workers=args.workers, pin_memory=True, persistent_workers=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, 
@@ -168,18 +215,16 @@ def main(args):
 
     # Model Setup
     device = "cuda"
-    model = SimpleMapper().to(device)
+    model = SparseMapRefiner().to(device)
     
-    # --- LOAD CHECKPOINT & PARSE EPOCH ---
+    # --- LOAD CHECKPOINT ---
     start_epoch = 0
     if args.checkpoint:
         if os.path.exists(args.checkpoint):
             print(f"[INFO] 🔄 Loading Checkpoint: {args.checkpoint}")
             state_dict = torch.load(args.checkpoint, map_location=device)
             model.load_state_dict(state_dict)
-            print("[INFO] Weights loaded successfully.")
             
-            # Extract epoch from filename
             match = re.search(r"model_ep(\d+).pt", args.checkpoint)
             if match:
                 start_epoch = int(match.group(1))
@@ -187,7 +232,9 @@ def main(args):
         else:
             print(f"[WARNING] Checkpoint {args.checkpoint} not found! Starting fresh.")
     
-    gpu_processor = GPUProcessor().to(device)
+    # Processor on GPU (Initializes Projector)
+    gpu_processor = GPUProcessor(device=device).to(device)
+    
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.L1Loss() 
     
@@ -196,14 +243,13 @@ def main(args):
     except:
         scaler = GradScaler()
 
-    # [FIX] Absolute Epoch Limit Logic
     total_target_epoch = args.epochs
     
     if start_epoch >= total_target_epoch:
-        print(f"[ERROR] Target epoch {total_target_epoch} reached or exceeded (Current: {start_epoch}). Increase --epochs to continue training.")
+        print(f"[ERROR] Target epoch {total_target_epoch} reached. Increase --epochs.")
         return
 
-    print(f"[INFO] Training from Epoch {start_epoch} to {total_target_epoch} (Batch={args.batch_size}, Workers={args.workers})")
+    print(f"[INFO] Training from Epoch {start_epoch} to {total_target_epoch}")
 
     for epoch in range(start_epoch, total_target_epoch):
         model.train()
@@ -216,17 +262,19 @@ def main(args):
             target_raw = target_raw.to(device, non_blocking=True)
 
             with torch.no_grad():
-                imgs, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
+                # 1. Project Raw Depth -> Sparse Map
+                sparse_input, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
 
             optimizer.zero_grad(set_to_none=True)
             
             try:
                 with torch.amp.autocast('cuda'):
-                    pred = model(imgs, grav)
+                    # 2. Refine Sparse Map -> Dense Map
+                    pred = model(sparse_input, grav)
                     loss = criterion(pred, target)
             except:
                 with autocast():
-                    pred = model(imgs, grav)
+                    pred = model(sparse_input, grav)
                     loss = criterion(pred, target)
             
             scaler.scale(loss).backward()
@@ -248,15 +296,15 @@ def main(args):
                 quat_raw = quat_raw.to(device, non_blocking=True)
                 target_raw = target_raw.to(device, non_blocking=True)
                 
-                imgs, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
+                sparse_input, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
                 
                 try:
                     with torch.amp.autocast('cuda'):
-                        pred = model(imgs, grav)
+                        pred = model(sparse_input, grav)
                         val_loss += criterion(pred, target).item()
                 except:
                     with autocast():
-                        pred = model(imgs, grav)
+                        pred = model(sparse_input, grav)
                         val_loss += criterion(pred, target).item()
         
         avg_val_loss = val_loss / len(val_loader)
@@ -273,14 +321,13 @@ def main(args):
     print("[INFO] Training Complete.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Perception Model")
+    parser = argparse.ArgumentParser(description="Train Perception Model V2 (Sparse Projection)")
     
-    # Arguments
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to .pt model to resume")
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
-    parser.add_argument("--workers", type=int, default=22, help="Number of dataloader workers")
+    parser.add_argument("--workers", type=int, default=24, help="Number of dataloader workers")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--epochs", type=int, default=50, help="Total target epochs (Absolute)")
+    parser.add_argument("--epochs", type=int, default=50, help="Total target epochs")
     parser.add_argument("--data", type=str, default="auto", help="Path to h5 dataset or 'auto'")
 
     args = parser.parse_args()
