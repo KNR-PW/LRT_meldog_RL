@@ -1,7 +1,8 @@
 """
-Train Perception V2: Sparse 2.5D Map Pre-processing
+Train Perception V3: Sparse 2.5D Map Pre-processing (Gravity Aligned)
 - Hardware: RTX 4090 + Ryzen 9950X
-- Pipeline: Raw Depth -> DepthProjector (GPU) -> Sparse Map -> Refinement Net -> Dense Height Map
+- Pipeline: Raw Depth -> Projector (Gravity Aligned) -> Sparse Map -> Refinement Net -> Dense Height Map
+- Compatibility: Matches 'preprocess_perception.py' V3 logic
 """
 
 import os
@@ -19,9 +20,12 @@ from tqdm import tqdm
 from datetime import datetime
 import re
 
-# Import the projector logic
-# Ensure preprocess_perception.py is in the same directory
-from preprocess_perception import DepthProjector 
+# --- IMPORT PROJECTOR ---
+# Expects preprocess_perception.py in the same directory
+try:
+    from preprocess_perception import DepthProjector
+except ImportError:
+    raise ImportError("Could not import 'preprocess_perception.py'. Ensure it is in the working directory.")
 
 # --- CONFIGURATION ---
 MAP_SIZE = 40  # 40x40 Grid
@@ -34,34 +38,39 @@ class MeldogDataset(Dataset):
         self.index_map = []
         
         print(f"[INFO] Scanning dataset: {h5_path}...")
-        with h5py.File(h5_path, 'r') as f:
-            for ep_name in f.keys():
-                if "gt_height" not in f[ep_name]: continue
-                ep_len = f[ep_name]["gt_height"].shape[0]
-                self.index_map.extend([(ep_name, i) for i in range(ep_len)])
-        print(f"[INFO] Found {len(self.index_map)} samples.")
+        try:
+            with h5py.File(h5_path, 'r') as f:
+                for ep_name in f.keys():
+                    if "gt_height" not in f[ep_name]: continue
+                    ep_len = f[ep_name]["gt_height"].shape[0]
+                    self.index_map.extend([(ep_name, i) for i in range(ep_len)])
+            print(f"[INFO] Found {len(self.index_map)} samples.")
+        except Exception as e:
+            print(f"[ERROR] Failed to read dataset: {e}")
+            self.index_map = []
 
     def __len__(self):
         return len(self.index_map)
 
     def __getitem__(self, idx):
-        # OPTIMIZATION: Open file once per worker and keep it open
+        # SWMR (Single Writer Multiple Reader) mode for robust reading
         if not hasattr(self, 'h5_file'):
             self.h5_file = h5py.File(self.h5_path, 'r', swmr=True, libver='latest')
 
         ep_name, step_idx = self.index_map[idx]
         grp = self.h5_file[ep_name]
         
-        # Load Raw Depth (mm uint16) -> Convert to Meters later
+        # 1. Load Raw Depth (mm uint16)
         d_front = grp["depth_front"][step_idx]
         d_rear  = grp["depth_rear"][step_idx]
         d_left  = grp["depth_left"][step_idx]
         d_right = grp["depth_right"][step_idx]
         
-        # Load GT Height (mm int16)
+        # 2. Load GT Height (mm int16)
         target  = grp["gt_height"][step_idx]
         
-        # Load Robot Pose (Optional, but good for gravity embedding context)
+        # 3. Load Robot Pose (Required for Gravity Alignment)
+        # Stored as float32 [w, x, y, z]
         quat = grp["robot_quat"][step_idx] 
 
         stack = np.stack([d_front, d_rear, d_left, d_right], axis=0)
@@ -72,35 +81,36 @@ class GPUProcessor(nn.Module):
     def __init__(self, device='cuda'):
         super().__init__()
         self.device = device
-        # Initialize the Geometric Projector
+        # Initialize the Geometric Projector (V3)
         self.projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=device)
 
     def forward(self, stack_raw, quat_raw, target_raw):
         """
         Args:
             stack_raw: (B, 4, H, W) uint16 in mm
-            quat_raw: (B, 4)
+            quat_raw: (B, 4) [w, x, y, z]
             target_raw: (B, 40, 40) int16 in mm
         Returns:
-            sparse_map: (B, 1, 40, 40) normalized/meters
-            grav_vec: (B, 3)
+            sparse_map: (B, 1, 40, 40) normalized/meters (Gravity Aligned)
+            grav_vec: (B, 3) Gravity vector in Robot Frame
             target: (B, 1, 40, 40) meters
         """
         # 1. Prepare Depth Stack (mm -> meters)
-        # (B, 4, H, W)
         depth_stack = stack_raw.float() * 0.001 
         
-        # 2. Run Geometric Projection
-        # Returns (B, 1, 40, 40) with values in meters (approx -1.0 to 1.0 relative to robot)
-        # We wrap in no_grad because projection is a fixed geometric operation, not learned.
+        # 2. Run Geometric Projection (Gravity Aligned)
+        # Passing 'quat_raw' enables the projector to rotate the point cloud 
+        # so the output map is always flat with respect to gravity.
         with torch.no_grad():
-            sparse_map = self.projector(depth_stack)
+            sparse_map = self.projector(depth_stack, quat_raw)
 
-        # 3. Prepare Target
+        # 3. Prepare Target (mm -> meters)
         target = target_raw.float() * 0.001
         target = target.unsqueeze(1) # (B, 1, 40, 40)
 
-        # 4. Prepare Gravity Vector
+        # 4. Prepare Gravity Vector (Context for Network)
+        # Even though the map is aligned, the network benefits from knowing 
+        # the robot's physical tilt (Robot Frame Gravity Vector).
         w, x, y, z = quat_raw[:, 0], quat_raw[:, 1], quat_raw[:, 2], quat_raw[:, 3]
         gx = -2 * (x*z + w*y)
         gy = -2 * (y*z - w*x)
@@ -110,7 +120,6 @@ class GPUProcessor(nn.Module):
         return sparse_map, grav_vec, target
 
 # --- MODEL: SPARSE MAP REFINER ---
-# Modified to accept 1-channel Sparse Map input
 class SparseMapRefiner(nn.Module):
     def __init__(self):
         super().__init__()
@@ -139,12 +148,12 @@ class SparseMapRefiner(nn.Module):
             nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
             nn.BatchNorm2d(out_c), 
             nn.ReLU(), 
-            nn.MaxPool2d(2) # Downsample
+            nn.MaxPool2d(2)
         )
 
     def up_block(self, in_c, out_c):
         return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), # Upsample
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
             nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
             nn.BatchNorm2d(out_c), 
             nn.ReLU()
@@ -152,24 +161,24 @@ class SparseMapRefiner(nn.Module):
 
     def forward(self, x, grav):
         # x: (B, 1, 40, 40)
-        e1 = self.enc1(x)  # -> (32, 20, 20)
-        e2 = self.enc2(e1) # -> (64, 10, 10)
-        e3 = self.enc3(e2) # -> (128, 5, 5)
+        e1 = self.enc1(x)  
+        e2 = self.enc2(e1) 
+        e3 = self.enc3(e2) 
 
         # Process Gravity
         B, _, H, W = e3.shape
         grav_embed = self.mlp_gravity(grav).unsqueeze(-1).unsqueeze(-1).expand(B, 32, H, W)
         
         # Concatenate Gravity at bottleneck
-        bottleneck = torch.cat([e3, grav_embed], dim=1) # (160, 5, 5)
+        bottleneck = torch.cat([e3, grav_embed], dim=1) 
 
         # Decode
-        d1 = self.dec1(bottleneck) # -> (64, 10, 10)
-        d2 = self.dec2(d1)         # -> (32, 20, 20)
+        d1 = self.dec1(bottleneck) 
+        d2 = self.dec2(d1)         
         
         # Final Output
-        out = self.final_upsample(d2) # -> (32, 40, 40)
-        out = self.final_conv(out)    # -> (1, 40, 40)
+        out = self.final_upsample(d2) 
+        out = self.final_conv(out)    
         
         return out
 
@@ -178,7 +187,7 @@ def main(args):
     # Logging Setup
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     prefix = "RESUME_" if args.checkpoint else ""
-    run_name = f"PM_v2_Sparse_{prefix}{timestamp}"
+    run_name = f"PM_v3_Sparse_Gravity_{prefix}{timestamp}"
     save_dir = os.path.join("logs", "perception", run_name)
     
     os.makedirs(save_dir, exist_ok=True)
@@ -194,6 +203,7 @@ def main(args):
         import glob
         files = glob.glob("datasets/*/*.h5")
         if files:
+            # Pick the most recent dataset
             files.sort(key=os.path.getmtime)
             data_path = files[-1]
             print(f"[INFO] Auto-detected dataset: {data_path}")
@@ -201,20 +211,25 @@ def main(args):
             print("[ERROR] No .h5 files found in datasets/")
             return
 
-    dataset = MeldogDataset(data_path)
+    try:
+        dataset = MeldogDataset(data_path)
+    except Exception as e:
+        print(f"[ERROR] Failed to load dataset: {e}")
+        return
+
     train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
     
-    # Batch size can likely be slightly lower than before because projection adds some VRAM overhead, 
-    # but since inputs to the ConvNet are tiny (40x40), it balances out.
+    print(f"[INFO] Training on {train_size} samples, Validating on {val_size} samples.")
+
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, 
                               num_workers=args.workers, pin_memory=True, persistent_workers=True)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, 
                             num_workers=args.workers, pin_memory=True, persistent_workers=True)
 
     # Model Setup
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SparseMapRefiner().to(device)
     
     # --- LOAD CHECKPOINT ---
@@ -232,16 +247,18 @@ def main(args):
         else:
             print(f"[WARNING] Checkpoint {args.checkpoint} not found! Starting fresh.")
     
-    # Processor on GPU (Initializes Projector)
+    # Processor on GPU
     gpu_processor = GPUProcessor(device=device).to(device)
     
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.L1Loss() 
     
+    # Modern AMP Scaler support
     try:
-        scaler = torch.amp.GradScaler('cuda')
-    except:
-        scaler = GradScaler()
+        from torch.amp import GradScaler
+        scaler = GradScaler('cuda')
+    except ImportError:
+        scaler = torch.cuda.amp.GradScaler()
 
     total_target_epoch = args.epochs
     
@@ -262,14 +279,14 @@ def main(args):
             target_raw = target_raw.to(device, non_blocking=True)
 
             with torch.no_grad():
-                # 1. Project Raw Depth -> Sparse Map
+                # 1. Project Raw Depth -> Sparse Map (Gravity Aligned)
                 sparse_input, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
 
             optimizer.zero_grad(set_to_none=True)
             
+            # AMP Context
             try:
                 with torch.amp.autocast('cuda'):
-                    # 2. Refine Sparse Map -> Dense Map
                     pred = model(sparse_input, grav)
                     loss = criterion(pred, target)
             except:
@@ -313,7 +330,7 @@ def main(args):
         
         print(f"Epoch {epoch+1}: Train {avg_train_loss:.5f} | Val {avg_val_loss:.5f}")
         
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 1 == 0:
             torch.save(model.state_dict(), f"{save_dir}/model_ep{epoch+1}.pt")
 
     torch.save(model.state_dict(), f"{save_dir}/model_final.pt")
@@ -321,11 +338,11 @@ def main(args):
     print("[INFO] Training Complete.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Perception Model V2 (Sparse Projection)")
+    parser = argparse.ArgumentParser(description="Train Perception Model V3 (Sparse Projection + Gravity)")
     
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to .pt model to resume")
-    parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
-    parser.add_argument("--workers", type=int, default=24, help="Number of dataloader workers")
+    parser.add_argument("--batch_size", type=int, default=640, help="Batch size (High VRAM recommended)")
+    parser.add_argument("--workers", type=int, default=32, help="Number of dataloader workers")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--epochs", type=int, default=50, help="Total target epochs")
     parser.add_argument("--data", type=str, default="auto", help="Path to h5 dataset or 'auto'")
