@@ -7,7 +7,7 @@ Perception Evaluation Script for Meldog (Pivot V3)
 - Visualization: 
     [Front] [Rear] [Top RGB]
     [Left]  [Right] [Sparse Projection]
-    [GT]    [Pred]  [Difference]
+    [GT]    [Model Output]  [Difference]
     [       Footer Info Panel       ]
 """
 
@@ -27,7 +27,7 @@ from isaaclab.app import AppLauncher
 # Argument Parsing
 parser = argparse.ArgumentParser(description="Evaluate Perception Model for Meldog")
 parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomotion-Policy-Direct-v0")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of parallel robots")
+parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel robots")
 parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Path to locomotion policy .pt file")
 parser.add_argument("--perception_checkpoint", type=str, default=None, help="Path to perception model (.pt).")
 parser.add_argument("--video_length", type=int, default=1000, help="Length of recording in steps")
@@ -62,7 +62,7 @@ TARGET_W = 424
 TARGET_H = 240
 
 # -----------------------------------------------------------------------------
-# MODEL: SPARSE MAP REFINER (Must Match Training)
+# MODEL: SPARSE MAP REFINER
 # -----------------------------------------------------------------------------
 class SparseMapRefiner(nn.Module):
     def __init__(self):
@@ -102,7 +102,6 @@ class SparseMapRefiner(nn.Module):
 
 class DummyPerceptionModel:
     def __call__(self, sparse_map, grav):
-        # Just return the sparse map as the "prediction" if no model is loaded
         return sparse_map.squeeze(1)
 
 # -----------------------------------------------------------------------------
@@ -129,14 +128,18 @@ def process_image(img_tensor, title, colormap=cv2.COLORMAP_JET, is_depth=True):
     cv2.putText(resized, title, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     return resized
 
-def process_map_centered(map_tensor, title, is_sparse=False):
+def process_map_centered(map_tensor, title, is_sparse=False, is_diff=False):
     data = map_tensor.squeeze().cpu().numpy()
-    # Normalize -0.5m to 0.5m roughly
-    norm = np.clip((data + 0.3) / 0.6, 0.0, 1.0) * 255.0
-    norm = norm.astype(np.uint8)
+    if is_diff:
+        norm = np.clip(data / 0.2, 0.0, 1.0) * 255.0
+        cmap = cv2.COLORMAP_HOT
+    else:
+        norm = np.clip((data + 0.7) / 1.0, 0.0, 1.0) * 255.0
+        if is_sparse:
+            norm[data < -1.9] = 0
+        cmap = cv2.COLORMAP_VIRIDIS
     
-    # Use distinct colormap for sparse inputs
-    cmap = cv2.COLORMAP_MAGMA if is_sparse else cv2.COLORMAP_VIRIDIS
+    norm = norm.astype(np.uint8)
     color_img = cv2.applyColorMap(norm, cmap)
     
     square_size = TARGET_H 
@@ -151,24 +154,25 @@ def process_map_centered(map_tensor, title, is_sparse=False):
     return final_img
 
 def create_footer_panel(loco_name, perc_name, timestamp):
-    # Create a wide, short panel for the bottom
     panel_h = 60
     panel_w = TARGET_W * 3
     panel = np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
     
     def fmt_name(path):
         if not path: return "None"
-        try: return f"{os.path.basename(os.path.dirname(path))}/{os.path.basename(path)}"
+        try: 
+            parts = path.replace("\\", "/").split("/")
+            if len(parts) > 2: return f".../{parts[-2]}/{parts[-1]}"
+            return path
         except: return os.path.basename(path)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    # Left: Locomotion
-    cv2.putText(panel, f"Locomotion: {fmt_name(loco_name)}", (20, 35), font, 0.5, (200, 200, 200), 1)
-    # Center: Perception
-    cv2.putText(panel, f"Perception: {fmt_name(perc_name)}", (panel_w//3 + 20, 35), font, 0.5, (200, 200, 200), 1)
-    # Right: Date
-    cv2.putText(panel, f"Date: {timestamp}", (2*panel_w//3 + 20, 35), font, 0.5, (200, 200, 200), 1)
+    font_scale = 0.4
+    color = (220, 220, 220)
     
+    cv2.putText(panel, f"Loco: {fmt_name(loco_name)}", (20, 25), font, font_scale, color, 1)
+    cv2.putText(panel, f"Perc: {fmt_name(perc_name)}", (20, 45), font, font_scale, color, 1)
+    cv2.putText(panel, f"Timestamp: {timestamp}", (panel_w - 280, 35), font, font_scale, color, 1)
     return panel
 
 # -----------------------------------------------------------------------------
@@ -202,10 +206,8 @@ def main():
     runner.load(args_cli.locomotion_checkpoint)
     policy = runner.get_inference_policy(device=env.device)
 
-    # Initialize Projector
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
-    # Load Perception
     perception_model = None
     if args_cli.perception_checkpoint and os.path.exists(args_cli.perception_checkpoint):
         print(f"[INFO] Loading Perception: {args_cli.perception_checkpoint}")
@@ -215,189 +217,134 @@ def main():
             model.load_state_dict(state_dict)
             perception_model = model.to(env.device)
             perception_model.eval()
-            print("[INFO] Model loaded successfully.")
         except Exception as e:
-            print(f"[ERROR] Failed to load model: {e}")
-            perception_model = None
+            print(f"[ERROR] Perception model load failed: {e}")
 
     if perception_model is None:
-        print("[WARN] Using Dummy Model (Sparse Input Passthrough).")
+        print("[WARN] Using Dummy Model.")
         perception_model = DummyPerceptionModel()
 
-    # Outputs
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    folder_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    folder_ts = datetime.now().strftime("PE_%Y-%m-%d_%H-%M-%S")
     save_dir = os.path.join("logs", "perception_eval", folder_ts)
     os.makedirs(save_dir, exist_ok=True)
     video_path = os.path.join(save_dir, "perception_eval.mp4")
     data_path = os.path.join(save_dir, "data.h5")
     
-    # 3x3 Grid + Footer (Total height = 240*3 + 60 = 780)
     video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (TARGET_W*3, TARGET_H*3 + 60))
     footer_img = create_footer_panel(args_cli.locomotion_checkpoint, args_cli.perception_checkpoint, timestamp_str)
 
-    data_buffer = {
-        "depth_front": [], "depth_rear": [], "depth_left": [], "depth_right": [],
-        "gt_height": [], "pred_height": [], "sparse_height": [], "diff_height": [],
-        "robot_pos": [], "robot_quat": []
-    }
+    # Multi-env buffers
+    buffers = [
+        {
+            "depth_front": [], "depth_rear": [], "depth_left": [], "depth_right": [],
+            "gt_height": [], "pred_height": [], "sparse_height": [], "diff_height": [],
+            "robot_pos": [], "robot_quat": []
+        }
+        for _ in range(args_cli.num_envs)
+    ]
 
-    # Markers
-    marker_cfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/ReconstructedTerrain",
-        markers={"sphere": sim_utils.SphereCfg(radius=0.02, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0)))},
-    )
-    recon_vis = VisualizationMarkers(marker_cfg)
-    recon_vis.set_visibility(True)
-
-    grid_size = MAP_SIZE 
-    x = torch.arange(grid_size, device=env.device) * MAP_RES - 1.0
-    y = torch.arange(grid_size, device=env.device) * MAP_RES - 1.0
-    grid_x, grid_y = torch.meshgrid(x, y, indexing='ij')
-
-    # -------------------------------------------------------------------------
-    # RECORDING LOOP
-    # -------------------------------------------------------------------------
     obs = env.get_observations()
     raw_env = env.unwrapped
     step = 0
-    print(f"[INFO] Starting Recording ({args_cli.video_length} steps)...")
+    print(f"[INFO] Starting Recording ({args_cli.video_length} steps for {args_cli.num_envs} envs)...")
     
     with torch.inference_mode():
         while simulation_app.is_running() and step < args_cli.video_length:
             actions = policy(obs)
             obs, _, _, _ = env.step(actions)
 
-            # --- 1. Get Sensor Data ---
+            # Get Sensor Data
             d_front = raw_env._tiled_camera_front.data.output["distance_to_image_plane"]
             d_rear  = raw_env._tiled_camera_rear.data.output["distance_to_image_plane"]
             d_left  = raw_env._tiled_camera_left.data.output["distance_to_image_plane"]
             d_right = raw_env._tiled_camera_right.data.output["distance_to_image_plane"]
-
             try: rgb_top = raw_env._tiled_camera_top.data.output["rgb"]
             except: rgb_top = torch.zeros((args_cli.num_envs, 240, 424, 3), device=env.device)
             
-            # [MOVED UP] Get Robot Orientation needed for Projection
             robot_quat = raw_env._robot.data.root_quat_w
+            robot_pos = raw_env._robot.data.root_pos_w
 
-            # [RE-ADDED] Get Ground Truth Scan
+            # GT Height
             if hasattr(raw_env, "_gt_scanner"):
                 trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
                 gt_points = raw_env._gt_scanner.data.ray_hits_w[..., 2] - trunk_z
-                act_size = int(np.sqrt(gt_points.shape[1]))
-                gt_scan = gt_points.view(args_cli.num_envs, act_size, act_size)
+                gt_scan = gt_points.view(args_cli.num_envs, MAP_SIZE, MAP_SIZE)
                 gt_scan = torch.clamp(gt_scan, -2.0, 2.0).transpose(-2, -1).flip(dims=[-2, -1])
             else:
-                gt_scan = torch.zeros((args_cli.num_envs, grid_size, grid_size), device=env.device)
+                gt_scan = torch.zeros((args_cli.num_envs, MAP_SIZE, MAP_SIZE), device=env.device)
             
-            # Prepare Depth Stack
-            depth_stack = torch.stack([
-                d_front.squeeze(-1), 
-                d_rear.squeeze(-1), 
-                d_left.squeeze(-1), 
-                d_right.squeeze(-1)
-            ], dim=1) 
+            depth_stack = torch.stack([d_front.squeeze(-1), d_rear.squeeze(-1), d_left.squeeze(-1), d_right.squeeze(-1)], dim=1) 
+            sparse_map = projector(depth_stack, robot_quat)
 
-            # --- 2. Inference Pipeline ---
-            
-            # [FIX] Now robot_quat is defined before this call
-            sparse_map = projector(depth_stack, robot_quat) # (B, 1, 40, 40)
-
-            # Calculate Gravity Vector (for the Refiner network)
             w, qx, qy, qz = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
-            gx = -2 * (qx*qz + w*qy)
-            gy = -2 * (qy*qz - w*qx)
-            gz = -(1 - 2 * (qx*qx + qy*qy))
+            gx, gy, gz = -2*(qx*qz + w*qy), -2*(qy*qz - w*qx), -(1-2*(qx*qx + qy*qy))
             grav_vec = torch.stack([gx, gy, gz], dim=1)
 
+            # Inference
             try:
                 pred_scan = perception_model(sparse_map, grav_vec).squeeze(1)
-                # Reshape check if GT size differs slightly (unlikely if set correctly)
-                if pred_scan.shape[-1] != gt_scan.shape[-1]:
-                     pred_scan = F.interpolate(pred_scan.unsqueeze(1), size=gt_scan.shape[-2:], mode='nearest').squeeze(1)
-            except Exception as e:
-                print(f"Inference Error: {e}")
+            except:
                 pred_scan = gt_scan.clone() * 0.0
-
+            
             diff_scan = torch.abs(gt_scan - pred_scan)
 
-            # Save Data
+            # Store data for ALL envs
+            for i in range(args_cli.num_envs):
+                buffers[i]["depth_front"].append(d_front[i].squeeze().cpu().numpy())
+                buffers[i]["depth_rear"].append(d_rear[i].squeeze().cpu().numpy())
+                buffers[i]["depth_left"].append(d_left[i].squeeze().cpu().numpy())
+                buffers[i]["depth_right"].append(d_right[i].squeeze().cpu().numpy())
+                buffers[i]["gt_height"].append(gt_scan[i].squeeze().cpu().numpy())
+                buffers[i]["pred_height"].append(pred_scan[i].squeeze().cpu().numpy())
+                buffers[i]["sparse_height"].append(sparse_map[i].squeeze().cpu().numpy())
+                buffers[i]["diff_height"].append(diff_scan[i].squeeze().cpu().numpy())
+                buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
+                buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
+
+            # Video Generation (Env 0 only)
             idx = 0
-            data_buffer["depth_front"].append(d_front[idx].squeeze().cpu().numpy())
-            data_buffer["depth_rear"].append(d_rear[idx].squeeze().cpu().numpy())
-            data_buffer["depth_left"].append(d_left[idx].squeeze().cpu().numpy())
-            data_buffer["depth_right"].append(d_right[idx].squeeze().cpu().numpy())
-            data_buffer["gt_height"].append(gt_scan[idx].squeeze().cpu().numpy())
-            data_buffer["pred_height"].append(pred_scan[idx].squeeze().cpu().numpy())
-            data_buffer["sparse_height"].append(sparse_map[idx].squeeze().cpu().numpy())
-            data_buffer["diff_height"].append(diff_scan[idx].squeeze().cpu().numpy())
-            data_buffer["robot_pos"].append(raw_env._robot.data.root_pos_w[idx].cpu().numpy())
-            data_buffer["robot_quat"].append(raw_env._robot.data.root_quat_w[idx].cpu().numpy())
-
-            # Vis: Reconstruct 3D points
-            if args_cli.num_envs > 0:
-                robot_pos = raw_env._robot.data.root_pos_w[idx]
-                robot_quat_val = raw_env._robot.data.root_quat_w[idx]
-                z_local = pred_scan[idx]
-                local_pts = torch.stack([grid_x.flatten(), grid_y.flatten(), z_local.flatten()], dim=-1)
-                world_pts = robot_pos + quat_apply(robot_quat_val.repeat(local_pts.shape[0], 1), local_pts)
-                recon_vis.visualize(world_pts)
-
-            # Vis: Video Frame
             img_front = process_image(d_front[idx], "Front")
             img_rear  = process_image(d_rear[idx], "Rear")
             img_top   = process_image(rgb_top[idx], "Top", is_depth=False)
-            
             img_left  = process_image(d_left[idx], "Left")
             img_right = process_image(d_right[idx], "Right")
             img_sparse = process_map_centered(sparse_map[idx], "Sparse Input", is_sparse=True)
+            img_gt    = process_map_centered(gt_scan[idx], "GT Height")
+            img_pred  = process_map_centered(pred_scan[idx], "Model Output")
+            img_diff  = process_map_centered(diff_scan[idx], "Difference", is_diff=True)
 
-            img_gt   = process_map_centered(gt_scan[idx], "GT Height")
-            img_pred = process_map_centered(pred_scan[idx], "Refined Pred")
-            img_diff = process_map_centered(diff_scan[idx], "Difference")
-
-            row1 = np.hstack([img_front, img_rear, img_top])
-            row2 = np.hstack([img_left, img_right, img_sparse])
-            row3 = np.hstack([img_gt, img_pred, img_diff])
+            row1, row2, row3 = np.hstack([img_front, img_rear, img_top]), np.hstack([img_left, img_right, img_sparse]), np.hstack([img_gt, img_pred, img_diff])
+            video_writer.write(np.vstack([row1, row2, row3, footer_img]))
             
-            full_frame = np.vstack([row1, row2, row3, footer_img])
-            
-            video_writer.write(full_frame)
             step += 1
             if step % 50 == 0: print(f"Recording... {step}/{args_cli.video_length}")
 
     video_writer.release()
     print(f"[INFO] Video saved to {video_path}")
     
-    # -------------------------------------------------------------------------
-    # SAVING LOGIC
-    # -------------------------------------------------------------------------
-    print(f"[INFO] Saving HDF5 to {data_path}...")
+    # Save ALL envs to HDF5
+    print(f"[INFO] Saving data for {args_cli.num_envs} envs to {data_path}...")
     with h5py.File(data_path, 'w') as f:
-        # 1. Depth -> UInt16 mm
-        f.create_dataset("depth_front", data=to_uint16_mm(data_buffer["depth_front"]), compression="gzip")
-        f.create_dataset("depth_rear",  data=to_uint16_mm(data_buffer["depth_rear"]),  compression="gzip")
-        f.create_dataset("depth_left",  data=to_uint16_mm(data_buffer["depth_left"]),  compression="gzip")
-        f.create_dataset("depth_right", data=to_uint16_mm(data_buffer["depth_right"]), compression="gzip")
+        for i in range(args_cli.num_envs):
+            grp = f.create_group(f"env_{i}")
+            grp.create_dataset("depth_front", data=to_uint16_mm(buffers[i]["depth_front"]), compression="gzip")
+            grp.create_dataset("depth_rear",  data=to_uint16_mm(buffers[i]["depth_rear"]),  compression="gzip")
+            grp.create_dataset("depth_left",  data=to_uint16_mm(buffers[i]["depth_left"]),  compression="gzip")
+            grp.create_dataset("depth_right", data=to_uint16_mm(buffers[i]["depth_right"]), compression="gzip")
+            
+            grp.create_dataset("gt_height",     data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
+            grp.create_dataset("pred_height",   data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
+            grp.create_dataset("sparse_height", data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
+            grp.create_dataset("diff_height",   data=to_int16_mm(buffers[i]["diff_height"]),  compression="gzip")
+            
+            grp.create_dataset("robot_pos",   data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
+            grp.create_dataset("robot_quat",  data=np.array(buffers[i]["robot_quat"], dtype=np.float32))
         
-        # 2. Maps -> Int16 mm
-        f.create_dataset("gt_height",     data=to_int16_mm(data_buffer["gt_height"]),    compression="gzip")
-        f.create_dataset("pred_height",   data=to_int16_mm(data_buffer["pred_height"]),  compression="gzip")
-        f.create_dataset("sparse_height", data=to_int16_mm(data_buffer["sparse_height"]),compression="gzip")
-        f.create_dataset("diff_height",   data=to_int16_mm(data_buffer["diff_height"]),  compression="gzip")
-        
-        # 3. Pose -> Float32
-        f.create_dataset("robot_pos",   data=np.array(data_buffer["robot_pos"], dtype=np.float32))
-        f.create_dataset("robot_quat",  data=np.array(data_buffer["robot_quat"], dtype=np.float32))
-        
-    print("[INFO] Data saved.")
-
-    print("[INFO] Entering Keep-Alive mode. Press Ctrl+C to exit.")
-    with torch.inference_mode():
-        while simulation_app.is_running():
-            actions = policy(obs)
-            obs, _, _, _ = env.step(actions)
-
+    print("[INFO] Data saved. Entering Keep-Alive mode.")
+    while simulation_app.is_running():
+        actions = policy(obs)
+        obs, _, _, _ = env.step(actions)
     env.close()
 
 if __name__ == "__main__":
