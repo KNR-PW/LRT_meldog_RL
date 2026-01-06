@@ -27,7 +27,7 @@ parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomoti
 parser.add_argument("--num_envs", type=int, default=1, help="Number of parallel robots")
 parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Path to locomotion policy .pt file")
 parser.add_argument("--perception_checkpoint", type=str, default=None, help="Path to perception model (.pt).")
-parser.add_argument("--video_length", type=int, default=400, help="Length of recording in steps")
+parser.add_argument("--video_length", type=int, default=1000, help="Length of recording in steps")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL Agent config entry point")
 
 # Append AppLauncher args
@@ -73,11 +73,22 @@ class SimpleMapper(nn.Module):
         self.final_resize = nn.AdaptiveAvgPool2d((MAP_SIZE, MAP_SIZE))
 
     def conv_block(self, in_c, out_c):
-        return nn.Sequential(nn.Conv2d(in_c, out_c, 3, padding=1), nn.BatchNorm2d(out_c), nn.ReLU(), nn.MaxPool2d(2))
+        # [FIX] padding_mode='replicate'
+        return nn.Sequential(
+            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
+            nn.BatchNorm2d(out_c), 
+            nn.ReLU(), 
+            nn.MaxPool2d(2)
+        )
 
     def up_block(self, in_c, out_c):
-        return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                             nn.Conv2d(in_c, out_c, 3, padding=1), nn.BatchNorm2d(out_c), nn.ReLU())
+        # [FIX] padding_mode='replicate'
+        return nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
+            nn.BatchNorm2d(out_c), 
+            nn.ReLU()
+        )
 
     def forward(self, x, grav):
         x = self.enc4(self.enc3(self.enc2(self.enc1(x))))

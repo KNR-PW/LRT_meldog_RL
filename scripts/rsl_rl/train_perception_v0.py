@@ -1,7 +1,7 @@
 """
-Train Perception V1: Fixed 40x40 & 5m Cap
+Train Perception V1: Fixed 40x40, 5m Cap, Absolute Epochs & Replicate Padding
 - Hardware: RTX 4090 + Ryzen 9950X
-- Usage: python train.py --checkpoint "logs/.../model.pt"
+- Usage: python train_perception_v0.py --checkpoint "logs/.../model_ep10.pt" --epochs 50
 """
 
 import os
@@ -17,6 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 from datetime import datetime
+import re
 
 # --- DIMENSIONS ---
 IMG_H, IMG_W = 120, 212   
@@ -64,25 +65,17 @@ class GPUProcessor(nn.Module):
 
     def forward(self, stack_raw, quat_raw, target_raw):
         # Images: (B, 4, H, W) -> Resize -> Norm
-        # Input is uint16 mm. Convert to float meters.
         stack = stack_raw.float() * 0.001 
-        
-        # [FIX] Clamp > 5.0 to 5.0 immediately to remove artifacts
-        stack = torch.clamp(stack, 0, 5.0)
-
+        stack = torch.clamp(stack, 0, 5.0) # Clamp max range
         stack = F.interpolate(stack, size=(IMG_H, IMG_W), mode='bilinear', align_corners=False)
-        
-        # Normalize: 0..5m -> 0..1.0
-        stack = stack * 0.2 
+        stack = stack * 0.2 # Norm 0..1
 
         # Target: (B, H, W) -> Resize
-        # Input is int16 mm. Convert to float meters.
         target = target_raw.float() * 0.001
         target = target.unsqueeze(1) 
-        
-        # [FIX] Ensure target is exactly MAP_SIZE (40)
         if target.shape[-1] != MAP_SIZE:
-            target = F.interpolate(target, size=(MAP_SIZE, MAP_SIZE), mode='bilinear', align_corners=False)
+            # [FIX] Use 'area' interpolation for maps to avoid aliasing/jagged edges
+            target = F.interpolate(target, size=(MAP_SIZE, MAP_SIZE), mode='area')
 
         # Gravity: (B, 4) -> (B, 3)
         w, x, y, z = quat_raw[:, 0], quat_raw[:, 1], quat_raw[:, 2], quat_raw[:, 3]
@@ -109,11 +102,22 @@ class SimpleMapper(nn.Module):
         self.final_resize = nn.AdaptiveAvgPool2d((MAP_SIZE, MAP_SIZE))
 
     def conv_block(self, in_c, out_c):
-        return nn.Sequential(nn.Conv2d(in_c, out_c, 3, padding=1), nn.BatchNorm2d(out_c), nn.ReLU(), nn.MaxPool2d(2))
+        # [FIX] padding_mode='replicate' fixes the weird border artifacts!
+        return nn.Sequential(
+            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
+            nn.BatchNorm2d(out_c), 
+            nn.ReLU(), 
+            nn.MaxPool2d(2)
+        )
 
     def up_block(self, in_c, out_c):
-        return nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-                             nn.Conv2d(in_c, out_c, 3, padding=1), nn.BatchNorm2d(out_c), nn.ReLU())
+        # [FIX] padding_mode='replicate' here too
+        return nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
+            nn.BatchNorm2d(out_c), 
+            nn.ReLU()
+        )
 
     def forward(self, x, grav):
         x = self.enc4(self.enc3(self.enc2(self.enc1(x))))
@@ -166,31 +170,46 @@ def main(args):
     device = "cuda"
     model = SimpleMapper().to(device)
     
-    # --- LOAD CHECKPOINT ---
+    # --- LOAD CHECKPOINT & PARSE EPOCH ---
+    start_epoch = 0
     if args.checkpoint:
         if os.path.exists(args.checkpoint):
             print(f"[INFO] 🔄 Loading Checkpoint: {args.checkpoint}")
             state_dict = torch.load(args.checkpoint, map_location=device)
             model.load_state_dict(state_dict)
             print("[INFO] Weights loaded successfully.")
+            
+            # Extract epoch from filename
+            match = re.search(r"model_ep(\d+).pt", args.checkpoint)
+            if match:
+                start_epoch = int(match.group(1))
+                print(f"[INFO] Resuming from Epoch {start_epoch}")
         else:
             print(f"[WARNING] Checkpoint {args.checkpoint} not found! Starting fresh.")
     
     gpu_processor = GPUProcessor().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    
-    # [FIX] Use L1 Loss for sharper terrain reconstruction
     criterion = nn.L1Loss() 
-    scaler = GradScaler() 
+    
+    try:
+        scaler = torch.amp.GradScaler('cuda')
+    except:
+        scaler = GradScaler()
 
-    print(f"[INFO] Starting Training with Batch={args.batch_size}, Workers={args.workers}")
+    # [FIX] Absolute Epoch Limit Logic
+    total_target_epoch = args.epochs
+    
+    if start_epoch >= total_target_epoch:
+        print(f"[ERROR] Target epoch {total_target_epoch} reached or exceeded (Current: {start_epoch}). Increase --epochs to continue training.")
+        return
 
-    # Training Loop
-    for epoch in range(args.epochs):
+    print(f"[INFO] Training from Epoch {start_epoch} to {total_target_epoch} (Batch={args.batch_size}, Workers={args.workers})")
+
+    for epoch in range(start_epoch, total_target_epoch):
         model.train()
         train_loss = 0
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{total_target_epoch}")
         for stack_raw, quat_raw, target_raw in pbar:
             stack_raw = stack_raw.to(device, non_blocking=True)
             quat_raw = quat_raw.to(device, non_blocking=True)
@@ -200,9 +219,15 @@ def main(args):
                 imgs, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
 
             optimizer.zero_grad(set_to_none=True)
-            with autocast():
-                pred = model(imgs, grav)
-                loss = criterion(pred, target)
+            
+            try:
+                with torch.amp.autocast('cuda'):
+                    pred = model(imgs, grav)
+                    loss = criterion(pred, target)
+            except:
+                with autocast():
+                    pred = model(imgs, grav)
+                    loss = criterion(pred, target)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -224,9 +249,15 @@ def main(args):
                 target_raw = target_raw.to(device, non_blocking=True)
                 
                 imgs, grav, target = gpu_processor(stack_raw, quat_raw, target_raw)
-                with autocast():
-                    pred = model(imgs, grav)
-                    val_loss += criterion(pred, target).item()
+                
+                try:
+                    with torch.amp.autocast('cuda'):
+                        pred = model(imgs, grav)
+                        val_loss += criterion(pred, target).item()
+                except:
+                    with autocast():
+                        pred = model(imgs, grav)
+                        val_loss += criterion(pred, target).item()
         
         avg_val_loss = val_loss / len(val_loader)
         writer.add_scalar("Loss/Val", avg_val_loss, epoch)
@@ -249,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1024, help="Batch size")
     parser.add_argument("--workers", type=int, default=22, help="Number of dataloader workers")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs")
+    parser.add_argument("--epochs", type=int, default=50, help="Total target epochs (Absolute)")
     parser.add_argument("--data", type=str, default="auto", help="Path to h5 dataset or 'auto'")
 
     args = parser.parse_args()
