@@ -6,8 +6,9 @@ Perception Evaluation Script for Meldog (V4 - U-Net + Occlusion Mask)
 - Runs Locomotion + Perception.
 - Saves full dataset (all envs) to HDF5.
 - Visualization: 
-    - UI: Grid of cameras and height maps.
-    - Isaac Sim: Green spheres (Sparse Input), Blue spheres (Model Output).
+    [Front Depth]  [Rear Depth]   [Top RGB]
+    [Left Depth]   [Right Depth]  [Occlusion Mask]
+    [GT Height]    [Model Output] [Difference]
 """
 
 import argparse
@@ -42,9 +43,6 @@ import gymnasium as gym
 import isaaclab_rl.rsl_rl as rsl_rl_utils
 from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
 from rsl_rl.runners import OnPolicyRunner
-from isaaclab.utils.markers import VisualizationMarkers
-from isaaclab.utils.markers.config import VisualizationMarkersCfg
-from isaaclab.utils.math import quat_apply
 
 # Import Projector and Utilities
 import meldog_simple_locomotion_policy.tasks 
@@ -206,24 +204,6 @@ def main():
         print(f"[INFO] Loaded Perception: {args_cli.perception_checkpoint}")
     model.eval()
 
-    # --- Marker Initialization ---
-    sparse_marker_cfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/SparsePoints",
-        markers={"sphere": VisualizationMarkersCfg.VisualAttributesCfg(radius=0.015, visual_material=VisualizationMarkersCfg.VisualAttributesCfg.MaterialCfg(diffuse_color=(0.0, 1.0, 0.0)))},
-    )
-    model_marker_cfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/ModelOutput",
-        markers={"sphere": VisualizationMarkersCfg.VisualAttributesCfg(radius=0.015, visual_material=VisualizationMarkersCfg.VisualAttributesCfg.MaterialCfg(diffuse_color=(0.0, 0.0, 1.0)))},
-    )
-    sparse_visualizer = VisualizationMarkers(sparse_marker_cfg)
-    model_visualizer = VisualizationMarkers(model_marker_cfg)
-
-    # Grid for markers (Local coordinates)
-    x = torch.linspace(-(MAP_SIZE // 2) * MAP_RES, (MAP_SIZE // 2 - 1) * MAP_RES, MAP_SIZE, device=env.device)
-    y = torch.linspace(-(MAP_SIZE // 2) * MAP_RES, (MAP_SIZE // 2 - 1) * MAP_RES, MAP_SIZE, device=env.device)
-    grid_y, grid_x = torch.meshgrid(y, x, indexing='ij')
-    local_grid_points = torch.stack([grid_x.flatten(), grid_y.flatten(), torch.zeros_like(grid_x.flatten())], dim=1) # (1600, 3)
-
     save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V4_%Y-%m-%d_%H-%M-%S"))
     os.makedirs(save_dir, exist_ok=True)
     
@@ -274,28 +254,7 @@ def main():
             sparse_map, occlusion_mask = projector(d_stack, robot_quat)
             pred_scan = model(sparse_map, occlusion_mask, grav)
 
-            # 4. Markers Visualization (Env 0)
-            idx = 0
-            # Transform Local Map to World Markers
-            # Pred Height markers
-            p_heights = pred_scan[idx].flatten()
-            p_local = local_grid_points.clone()
-            p_local[:, 2] = p_heights
-            p_world = quat_apply(robot_quat[idx].repeat(MAP_SIZE*MAP_SIZE, 1), p_local) + robot_pos[idx]
-            model_visualizer.visualize(p_world)
-
-            # Sparse Height markers (only where mask > 0)
-            s_mask = occlusion_mask[idx].flatten() > 0.5
-            if s_mask.any():
-                s_heights = sparse_map[idx].flatten()[s_mask]
-                s_local = local_grid_points[s_mask].clone()
-                s_local[:, 2] = s_heights
-                s_world = quat_apply(robot_quat[idx].repeat(s_local.shape[0], 1), s_local) + robot_pos[idx]
-                sparse_visualizer.visualize(s_world)
-            else:
-                sparse_visualizer.visualize(torch.zeros((1, 3), device=env.device))
-
-            # 5. GT Height
+            # 4. GT Height
             if hasattr(raw_env, "_gt_scanner"):
                 trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
                 gt_scan = (raw_env._gt_scanner.data.ray_hits_w[..., 2] - trunk_z).view(args_cli.num_envs, MAP_SIZE, MAP_SIZE)
@@ -318,7 +277,8 @@ def main():
                 buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
                 buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
 
-            # UI Visualization (Env 0)
+            # Visualization (Env 0)
+            idx = 0
             img_grid = [
                 process_image(d_stack[idx, 0], "Front"), process_image(d_stack[idx, 1], "Rear"), process_image(rgb_top[idx], "Top", is_depth=False),
                 process_image(d_stack[idx, 2], "Left"), process_image(d_stack[idx, 3], "Right"), process_map_centered(occlusion_mask[idx], "Occlusion Mask", is_mask=True),
@@ -349,6 +309,7 @@ def main():
             grp.create_dataset("gt_height",      data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
             grp.create_dataset("pred_height",    data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
             grp.create_dataset("sparse_height",  data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
+            # Occlusion mask is 0 or 1, save as uint8
             grp.create_dataset("occlusion_mask", data=np.array(buffers[i]["occlusion_mask"], dtype=np.uint8), compression="gzip")
             
             grp.create_dataset("robot_pos",   data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
