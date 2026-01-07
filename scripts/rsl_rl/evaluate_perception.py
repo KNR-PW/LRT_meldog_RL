@@ -7,8 +7,10 @@ Perception Evaluation Script for Meldog (V4 - U-Net + Occlusion Mask)
 - Saves full dataset (all envs) to HDF5.
 - Visualization: 
     [Front Depth]  [Rear Depth]   [Top RGB]
-    [Left Depth]   [Right Depth]  [Occlusion Mask]
+    [Left Depth]   [Right Depth]  [Sparse Map]
     [GT Height]    [Model Output] [Difference]
+- 3D View: Green markers (Model Output), Blue markers (Sparse Map) for ALL envs.
+- Fixed: Mirrored axes corrected, Yaw-aligned rotation.
 """
 
 import argparse
@@ -23,6 +25,12 @@ from datetime import datetime
 
 from isaaclab.app import AppLauncher
 
+def str2bool(v):
+    if isinstance(v, bool): return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'): return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'): return False
+    else: raise argparse.ArgumentTypeError('Boolean value expected.')
+
 # Argument Parsing
 parser = argparse.ArgumentParser(description="Evaluate Perception Model V4 for Meldog")
 parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomotion-Policy-Direct-v0")
@@ -31,6 +39,9 @@ parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Pa
 parser.add_argument("--perception_checkpoint", type=str, default=None, help="Path to perception model (.pt).")
 parser.add_argument("--video_length", type=int, default=1000, help="Length of recording in steps")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL Agent config entry point")
+# VISUALIZATION TOGGLES
+parser.add_argument("--vis_model", type=str2bool, default=True, help="Visualize model output (Green markers)")
+parser.add_argument("--vis_sparse", type=str2bool, default=False, help="Visualize sparse input (Blue markers)")
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -40,7 +51,10 @@ app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
 import gymnasium as gym
+import isaaclab.sim as sim_utils
 import isaaclab_rl.rsl_rl as rsl_rl_utils
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.utils.math import quat_apply, euler_xyz_from_quat, quat_from_euler_xyz
 from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
 from rsl_rl.runners import OnPolicyRunner
 
@@ -141,15 +155,12 @@ def process_image(img_tensor, title, colormap=cv2.COLORMAP_JET, is_depth=True):
     cv2.putText(resized, title, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     return resized
 
-def process_map_centered(map_tensor, title, is_mask=False, is_diff=False):
+def process_map_centered(map_tensor, title, is_diff=False):
     data = map_tensor.squeeze().cpu().numpy()
     
     if is_diff:
         norm = (np.clip(data / 0.2, 0.0, 1.0) * 255.0).astype(np.uint8)
         color_img = cv2.applyColorMap(norm, cv2.COLORMAP_HOT)
-    elif is_mask:
-        norm = (np.clip(data, 0.0, 1.0) * 255.0).astype(np.uint8)
-        color_img = cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
     else:
         norm = (np.clip((data + 0.5) / 1.0, 0.0, 1.0) * 255.0).astype(np.uint8)
         color_img = cv2.applyColorMap(norm, cv2.COLORMAP_VIRIDIS)
@@ -212,6 +223,27 @@ def main():
     video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (TARGET_W*3, TARGET_H*3 + 60))
     footer_img = create_footer_panel(args_cli.locomotion_checkpoint, args_cli.perception_checkpoint, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+    # Markers Setup (Swapped Colors: Sparse=Blue, Model=Green)
+    sparse_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/SparseMap",
+        markers={"sphere": sim_utils.SphereCfg(radius=0.015, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0)))},
+    )
+    sparse_vis = VisualizationMarkers(sparse_marker_cfg)
+
+    recon_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/ReconstructedTerrain",
+        markers={"sphere": sim_utils.SphereCfg(radius=0.015, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)))},
+    )
+    recon_vis = VisualizationMarkers(recon_marker_cfg)
+
+    # Local Grid Generation - Reversed coordinates to correct mirroring
+    grid_range = (MAP_SIZE * MAP_RES) / 2.0
+    x_coords = torch.linspace(grid_range - MAP_RES/2, -grid_range + MAP_RES/2, MAP_SIZE, device=env.device)
+    y_coords = torch.linspace(grid_range - MAP_RES/2, -grid_range + MAP_RES/2, MAP_SIZE, device=env.device)
+    grid_x, grid_y = torch.meshgrid(x_coords, y_coords, indexing='ij')
+    grid_x = grid_x.flatten()
+    grid_y = grid_y.flatten()
+
     # Multi-env buffers
     buffers = [
         {
@@ -224,8 +256,9 @@ def main():
 
     obs = env.get_observations()
     raw_env = env.unwrapped
+    trunk_link_idx = raw_env._robot.find_bodies("trunk_link")[0][0]
+
     step = 0
-    
     print(f"[INFO] Starting Recording ({args_cli.video_length} steps for {args_cli.num_envs} envs)...")
 
     with torch.inference_mode():
@@ -247,6 +280,11 @@ def main():
             # 2. Get Pose & Gravity
             robot_quat = raw_env._robot.data.root_quat_w
             robot_pos = raw_env._robot.data.root_pos_w
+            trunk_pos_w = raw_env._robot.data.body_pos_w[:, trunk_link_idx]
+            
+            _, _, yaw = euler_xyz_from_quat(robot_quat)
+            yaw_quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
+
             w, qx, qy, qz = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
             grav = torch.stack([-2*(qx*qz + w*qy), -2*(qy*qz - w*qx), -(1-2*(qx*qx + qy*qy))], dim=1)
 
@@ -264,6 +302,24 @@ def main():
             
             diff_scan = torch.abs(gt_scan - pred_scan.squeeze(1))
 
+            # --- 3D Visualization for ALL Environments ---
+            n = args_cli.num_envs
+            m = MAP_SIZE * MAP_SIZE
+            
+            local_grid_xy = torch.stack([grid_x, grid_y, torch.zeros_like(grid_x)], dim=-1).repeat(n, 1, 1)
+            rotated_grid_xy = quat_apply(yaw_quat.repeat_interleave(m, dim=0), local_grid_xy.view(-1, 3)).view(n, m, 3)
+
+            # Conditional Visualization based on -- parameters
+            if args_cli.vis_sparse:
+                sparse_world_pts = trunk_pos_w.unsqueeze(1) + rotated_grid_xy
+                sparse_world_pts[..., 2] += sparse_map.view(n, m)
+                sparse_vis.visualize(sparse_world_pts.view(-1, 3))
+
+            if args_cli.vis_model:
+                recon_world_pts = trunk_pos_w.unsqueeze(1) + rotated_grid_xy
+                recon_world_pts[..., 2] += pred_scan.view(n, m)
+                recon_vis.visualize(recon_world_pts.view(-1, 3))
+
             # Store data for ALL envs
             for i in range(args_cli.num_envs):
                 buffers[i]["depth_front"].append(d_front[i].squeeze().cpu().numpy())
@@ -277,12 +333,18 @@ def main():
                 buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
                 buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
 
-            # Visualization (Env 0)
+            # Video Visualization (Env 0)
             idx = 0
             img_grid = [
-                process_image(d_stack[idx, 0], "Front"), process_image(d_stack[idx, 1], "Rear"), process_image(rgb_top[idx], "Top", is_depth=False),
-                process_image(d_stack[idx, 2], "Left"), process_image(d_stack[idx, 3], "Right"), process_map_centered(occlusion_mask[idx], "Occlusion Mask", is_mask=True),
-                process_map_centered(gt_scan[idx], "GT Height"), process_map_centered(pred_scan[idx], "Model Output"), process_map_centered(diff_scan[idx], "Difference", is_diff=True)
+                process_image(d_stack[idx, 0], "Front"), 
+                process_image(d_stack[idx, 1], "Rear"), 
+                process_image(rgb_top[idx], "Top", is_depth=False),
+                process_image(d_stack[idx, 2], "Left"), 
+                process_image(d_stack[idx, 3], "Right"), 
+                process_map_centered(sparse_map[idx], "Sparse Map"),
+                process_map_centered(gt_scan[idx], "GT Height"), 
+                process_map_centered(pred_scan[idx], "Model Output"), 
+                process_map_centered(diff_scan[idx], "Difference", is_diff=True)
             ]
 
             row1 = np.hstack(img_grid[0:3])
@@ -309,7 +371,6 @@ def main():
             grp.create_dataset("gt_height",      data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
             grp.create_dataset("pred_height",    data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
             grp.create_dataset("sparse_height",  data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
-            # Occlusion mask is 0 or 1, save as uint8
             grp.create_dataset("occlusion_mask", data=np.array(buffers[i]["occlusion_mask"], dtype=np.uint8), compression="gzip")
             
             grp.create_dataset("robot_pos",   data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
