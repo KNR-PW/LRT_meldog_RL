@@ -25,7 +25,7 @@ from isaaclab.app import AppLauncher
 # Argument Parsing
 parser = argparse.ArgumentParser(description="Evaluate Perception Model V4 for Meldog")
 parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomotion-Policy-Direct-v0")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of parallel robots")
+parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel robots")
 parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Path to locomotion policy .pt file")
 parser.add_argument("--perception_checkpoint", type=str, default=None, help="Path to perception model (.pt).")
 parser.add_argument("--video_length", type=int, default=1000, help="Length of recording in steps")
@@ -42,11 +42,8 @@ import gymnasium as gym
 import isaaclab_rl.rsl_rl as rsl_rl_utils
 from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
 from rsl_rl.runners import OnPolicyRunner
-
-# Fixed Imports for Isaac Lab 1.x
-from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
-from isaaclab.markers.config import SphereMarkerCfg
-from isaaclab.sim import PreviewSurfaceCfg
+from isaaclab.utils.markers import VisualizationMarkers
+from isaaclab.utils.markers.config import VisualizationMarkersCfg
 from isaaclab.utils.math import quat_apply
 
 # Import Projector and Utilities
@@ -209,24 +206,14 @@ def main():
         print(f"[INFO] Loaded Perception: {args_cli.perception_checkpoint}")
     model.eval()
 
-    # --- Marker Initialization (Corrected for Isaac Lab 1.x) ---
+    # --- Marker Initialization ---
     sparse_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/SparsePoints",
-        markers={
-            "sphere": SphereMarkerCfg(
-                radius=0.015,
-                visual_material=PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0))
-            )
-        },
+        markers={"sphere": VisualizationMarkersCfg.VisualAttributesCfg(radius=0.015, visual_material=VisualizationMarkersCfg.VisualAttributesCfg.MaterialCfg(diffuse_color=(0.0, 1.0, 0.0)))},
     )
     model_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/ModelOutput",
-        markers={
-            "sphere": SphereMarkerCfg(
-                radius=0.015,
-                visual_material=PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0))
-            )
-        },
+        markers={"sphere": VisualizationMarkersCfg.VisualAttributesCfg(radius=0.015, visual_material=VisualizationMarkersCfg.VisualAttributesCfg.MaterialCfg(diffuse_color=(0.0, 0.0, 1.0)))},
     )
     sparse_visualizer = VisualizationMarkers(sparse_marker_cfg)
     model_visualizer = VisualizationMarkers(model_marker_cfg)
@@ -290,12 +277,14 @@ def main():
             # 4. Markers Visualization (Env 0)
             idx = 0
             # Transform Local Map to World Markers
+            # Pred Height markers
             p_heights = pred_scan[idx].flatten()
             p_local = local_grid_points.clone()
             p_local[:, 2] = p_heights
             p_world = quat_apply(robot_quat[idx].repeat(MAP_SIZE*MAP_SIZE, 1), p_local) + robot_pos[idx]
             model_visualizer.visualize(p_world)
 
+            # Sparse Height markers (only where mask > 0)
             s_mask = occlusion_mask[idx].flatten() > 0.5
             if s_mask.any():
                 s_heights = sparse_map[idx].flatten()[s_mask]
