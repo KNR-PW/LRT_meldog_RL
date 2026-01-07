@@ -11,6 +11,7 @@ Perception Evaluation Script for Meldog (V4 - U-Net + Occlusion Mask)
     [GT Height]    [Model Output] [Difference]
 - 3D View: Green markers (Model Output), Blue markers (Sparse Map) for ALL envs.
 - Fixed: Mirrored axes corrected, Yaw-aligned rotation.
+- ADAPTED: Model architecture matches training script (SparseMapRefiner V4)
 """
 
 import argparse
@@ -71,55 +72,41 @@ TARGET_W = 424
 TARGET_H = 240
 
 # -----------------------------------------------------------------------------
-# MODEL: SPARSE MAP REFINER (V4 U-Net)
+# MODEL: SPARSE MAP REFINER (V4 U-Net) - EXACT MATCH WITH TRAINING SCRIPT
 # -----------------------------------------------------------------------------
 class SparseMapRefiner(nn.Module):
     def __init__(self):
         super().__init__()
-        self.enc1 = self.conv_block(2, 32)   
-        self.enc2 = self.conv_block(32, 64)  
-        self.enc3 = self.conv_block(64, 128) 
+        # Level 1: 40 -> 20
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=2, padding=1) # Learnable downsample
+        )
+        # Level 2: 20 -> 10
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=2, padding=1)
+        )
         
-        self.mlp_gravity = nn.Sequential(
-            nn.Linear(3, 32), nn.ReLU(), nn.Linear(32, 32)
-        )
+        self.mlp_gravity = nn.Sequential(nn.Linear(3, 32), nn.ReLU(), nn.Linear(32, 32))
 
-        self.dec1 = self.up_block(160, 64)
-        self.dec2 = self.up_block(128, 32)       
-        
-        self.final_upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.final_conv = nn.Conv2d(64, 1, kernel_size=3, padding=1)
-
-    def conv_block(self, in_c, out_c):
-        return nn.Sequential(
-            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
-            nn.BatchNorm2d(out_c), nn.ReLU(), nn.MaxPool2d(2)
-        )
-
-    def up_block(self, in_c, out_c):
-        return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), 
-            nn.Conv2d(in_c, out_c, 3, padding=1, padding_mode='replicate'), 
-            nn.BatchNorm2d(out_c), nn.ReLU()
-        )
+        # Decoder with Transpose Convs for sharpness
+        self.dec1 = nn.ConvTranspose2d(64 + 32, 32, kernel_size=4, stride=2, padding=1) 
+        self.dec2 = nn.ConvTranspose2d(32 + 32, 16, kernel_size=4, stride=2, padding=1)
+        self.final_conv = nn.Conv2d(16 + 2, 1, kernel_size=3, padding=1)
 
     def forward(self, x, mask, grav):
-        x_in = torch.cat([x, mask], dim=1) 
-        s1 = self.enc1(x_in)
-        s2 = self.enc2(s1)
-        s3 = self.enc3(s2)
-
-        B, _, H, W = s3.shape
-        grav_embed = self.mlp_gravity(grav).unsqueeze(-1).unsqueeze(-1).expand(B, 32, H, W)
-        x = torch.cat([s3, grav_embed], dim=1) 
-
-        x = self.dec1(x)
-        x = torch.cat([x, s2], dim=1)
-        x = self.dec2(x)
-        x = torch.cat([x, s1], dim=1)
+        x_in = torch.cat([x, mask], dim=1) # B, 2, 40, 40
+        s1 = self.enc1(x_in)  # B, 32, 20, 20
+        s2 = self.enc2(s1)    # B, 64, 10, 10
         
-        x = self.final_upsample(x)
-        return self.final_conv(x)
+        B, _, H, W = s2.shape
+        grav_embed = self.mlp_gravity(grav).view(B, 32, 1, 1).expand(B, 32, H, W)
+        
+        up1 = self.dec1(torch.cat([s2, grav_embed], dim=1)) # B, 32, 20, 20
+        up2 = self.dec2(torch.cat([up1, s1], dim=1))       # B, 16, 40, 40
+        
+        return self.final_conv(torch.cat([up2, x_in], dim=1))
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -210,10 +197,21 @@ def main():
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
     model = SparseMapRefiner().to(env.device)
+    model.eval()  # Set to evaluation mode
+    
     if args_cli.perception_checkpoint:
-        model.load_state_dict(torch.load(args_cli.perception_checkpoint, map_location=env.device))
-        print(f"[INFO] Loaded Perception: {args_cli.perception_checkpoint}")
-    model.eval()
+        checkpoint = torch.load(args_cli.perception_checkpoint, map_location=env.device)
+        
+        # Handle both full checkpoint format and state_dict-only format
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+            epoch = checkpoint.get('epoch', 'unknown')
+            print(f"[INFO] Loaded Perception Model from Epoch {epoch}: {args_cli.perception_checkpoint}")
+        else:
+            model.load_state_dict(checkpoint)
+            print(f"[INFO] Loaded Perception Model: {args_cli.perception_checkpoint}")
+    else:
+        print("[WARNING] No perception checkpoint provided. Using untrained model.")
 
     save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V4_%Y-%m-%d_%H-%M-%S"))
     os.makedirs(save_dir, exist_ok=True)
@@ -249,6 +247,7 @@ def main():
         {
             "depth_front": [], "depth_rear": [], "depth_left": [], "depth_right": [],
             "gt_height": [], "pred_height": [], "sparse_height": [], "occlusion_mask": [],
+            "diff_height": [],  # Added: difference between GT and prediction
             "robot_pos": [], "robot_quat": []
         }
         for _ in range(args_cli.num_envs)
@@ -277,7 +276,7 @@ def main():
             try: rgb_top = raw_env._tiled_camera_top.data.output["rgb"]
             except: rgb_top = torch.zeros((args_cli.num_envs, 240, 424, 3), device=env.device)
 
-            # 2. Get Pose & Gravity
+            # 2. Get Pose & Gravity (EXACT MATCH WITH TRAINING)
             robot_quat = raw_env._robot.data.root_quat_w
             robot_pos = raw_env._robot.data.root_pos_w
             trunk_pos_w = raw_env._robot.data.body_pos_w[:, trunk_link_idx]
@@ -285,10 +284,12 @@ def main():
             _, _, yaw = euler_xyz_from_quat(robot_quat)
             yaw_quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
 
-            w, qx, qy, qz = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
-            grav = torch.stack([-2*(qx*qz + w*qy), -2*(qy*qz - w*qx), -(1-2*(qx*qx + qy*qy))], dim=1)
+            # Gravity computation matching training exactly
+            w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
+            gx, gy, gz = -2*(x*z + w*y), -2*(y*z - w*x), -(1 - 2*(x*x + y*y))
+            grav = torch.stack([gx, gy, gz], dim=1)
 
-            # 3. Project & Predict
+            # 3. Project & Predict (EXACT MATCH WITH TRAINING)
             sparse_map, occlusion_mask = projector(d_stack, robot_quat)
             pred_scan = model(sparse_map, occlusion_mask, grav)
 
@@ -330,6 +331,7 @@ def main():
                 buffers[i]["pred_height"].append(pred_scan[i].squeeze().cpu().numpy())
                 buffers[i]["sparse_height"].append(sparse_map[i].squeeze().cpu().numpy())
                 buffers[i]["occlusion_mask"].append(occlusion_mask[i].squeeze().cpu().numpy())
+                buffers[i]["diff_height"].append(diff_scan[i].squeeze().cpu().numpy())  # Added: save difference
                 buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
                 buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
 
@@ -371,6 +373,7 @@ def main():
             grp.create_dataset("gt_height",      data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
             grp.create_dataset("pred_height",    data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
             grp.create_dataset("sparse_height",  data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
+            grp.create_dataset("diff_height",    data=to_int16_mm(buffers[i]["diff_height"]),  compression="gzip")  # Added
             grp.create_dataset("occlusion_mask", data=np.array(buffers[i]["occlusion_mask"], dtype=np.uint8), compression="gzip")
             
             grp.create_dataset("robot_pos",   data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
