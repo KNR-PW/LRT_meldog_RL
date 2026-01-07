@@ -1,6 +1,7 @@
 """
 preprocess_perception.py
 Handles geometric projection from Depth Images to Top-Down Height Maps.
+V4 Update: Added Occlusion Mask generation (1=No Data, 0=Data).
 Standalone Version: No dependency on isaaclab or pxr (offline-safe).
 """
 import torch
@@ -21,7 +22,6 @@ def quat_apply(q, v):
 
 def quat_from_euler_xyz(r, p, y):
     """Create quaternion from Euler angles (roll, pitch, yaw)."""
-    # r, p, y are tensors or floats
     cx, sx = torch.cos(r / 2.0), torch.sin(r / 2.0)
     cy, sy = torch.cos(p / 2.0), torch.sin(p / 2.0)
     cz, sz = torch.cos(y / 2.0), torch.sin(y / 2.0)
@@ -34,21 +34,13 @@ def quat_from_euler_xyz(r, p, y):
 
 # --- HARDWARE CONFIGURATION ---
 CAM_RES = (424, 240) # (Width, Height)
-CAM_FOV = 87.0       # Horizontal FOV (Approximate for Realsense D435)
+CAM_FOV = 87.0       # Horizontal FOV
 
-# EXTRINSICS (Updated for V3)
-# Logic: Ry(30) looks "Down". Rz(angle) rotates that view around the robot.
+# EXTRINSICS (V3/V4 Standard)
 CAM_EXTRINSICS = {
-    # Front: Yaw 0, Pitch 30
     "front": {"pos": [0.4, 0.0, 0.04],   "rpy": [0.0, np.deg2rad(30), 0.0]},
-    
-    # Rear: Yaw 180, Pitch 30
     "rear":  {"pos": [-0.4, 0.0, 0.04],  "rpy": [0.0, np.deg2rad(30), np.pi]},
-    
-    # Left: Yaw 90, Pitch 30
     "left":  {"pos": [0.0, 0.16, 0.05],  "rpy": [0.0, np.deg2rad(30), np.pi/2]},
-    
-    # Right: Yaw -90, Pitch 30
     "right": {"pos": [0.0, -0.16, 0.05], "rpy": [0.0, np.deg2rad(30), -np.pi/2]},
 }
 
@@ -61,7 +53,6 @@ class DepthProjector(nn.Module):
         
         # 1. Pre-compute Intrinsics (Ray Directions)
         w, h = CAM_RES
-        # Note: Isaac Sim Pinhole usually treats FOV as Horizontal
         fx = w / (2 * np.tan(np.deg2rad(CAM_FOV) / 2))
         fy = fx 
         cx, cy = w / 2, h / 2
@@ -71,27 +62,21 @@ class DepthProjector(nn.Module):
         # Optical Frame: x=Right, y=Down, z=Forward
         x_norm = (x_grid - cx) / fx
         y_norm = (y_grid - cy) / fy
-        self.ray_dirs = torch.stack([x_norm, y_norm, torch.ones_like(x_norm)], dim=-1).to(device) # (H, W, 3)
+        self.ray_dirs = torch.stack([x_norm, y_norm, torch.ones_like(x_norm)], dim=-1).to(device)
         
         # 2. Pre-compute Extrinsics (Camera -> Robot Base)
         self.cam_transforms = {}
-        # Matrix to align Optical Frame (Z-forward) to ROS Frame (X-forward)
-        # ROS/Isaac Base: X-Forward, Y-Left, Z-Up
-        # Optical: X-Right, Y-Down, Z-Forward
-        # Transform: Optical -> ROS
+        # Transform: Optical (Z-fwd) -> ROS (X-fwd, Y-left, Z-up)
         R_opt_to_ros = torch.tensor([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], dtype=torch.float32, device=device)
 
         for cam_name, cfg in CAM_EXTRINSICS.items():
             pos = torch.tensor(cfg['pos'], device=device, dtype=torch.float32)
             rpy = torch.tensor(cfg['rpy'], device=device, dtype=torch.float32)
             R_world = self._euler_to_mat(rpy)
-            
-            # Combine: Rotate Optical to ROS, then Rotate by Extrinsic
             final_R = R_world @ R_opt_to_ros
             self.cam_transforms[cam_name] = (final_R, pos)
 
     def _euler_to_mat(self, rpy):
-        # Implements Rz @ Ry @ Rx
         r, p, y = rpy[0], rpy[1], rpy[2]
         Rx = torch.tensor([[1,0,0],[0,torch.cos(r),-torch.sin(r)],[0,torch.sin(r),torch.cos(r)]], device=self.device)
         Ry = torch.tensor([[torch.cos(p),0,torch.sin(p)],[0,1,0],[-torch.sin(p),0,torch.cos(p)]], device=self.device)
@@ -101,23 +86,26 @@ class DepthProjector(nn.Module):
     def forward(self, depth_stack, robot_quat=None):
         """
         Args:
-            depth_stack: (B, 4, H, W) order [Front, Rear, Left, Right] in Meters.
-            robot_quat: (B, 4) [w, x, y, z] - Required for Gravity Alignment.
+            depth_stack: (B, 4, H, W) [Front, Rear, Left, Right] in Meters.
+            robot_quat: (B, 4) [w, x, y, z] for Gravity Alignment.
         Returns:
-            height_map: (B, 1, 40, 40) - Gravity Aligned (Horizontal Frame).
+            height_map: (B, 1, 40, 40) - Gravity Aligned Heights.
+            occlusion_mask: (B, 1, 40, 40) - 1.0 where NO data exists, 0.0 where data exists.
         """
         B, _, H, W = depth_stack.shape
         
-        # Initialize grid with a low value (floor)
+        # Initialize grids
+        # Height grid starts at -5.0 (floor)
         grid_flat = torch.full((B * self.map_size * self.map_size,), -5.0, device=self.device)
+        # Mask grid starts at 1.0 (all occluded/no data)
+        mask_flat = torch.ones((B * self.map_size * self.map_size,), device=self.device)
         
         half_range = (self.map_size * self.map_res) / 2.0 
         cam_names = ["front", "rear", "left", "right"]
         
         for i, name in enumerate(cam_names):
-            depth = depth_stack[:, i, :, :] # (B, H, W)
+            depth = depth_stack[:, i, :, :]
             
-            # Filter valid depth
             mask = (depth > 0.1) & (depth < 3.0) 
             if not mask.any(): continue
 
@@ -128,65 +116,48 @@ class DepthProjector(nn.Module):
             R, t = self.cam_transforms[name]
             points_base = torch.matmul(points_opt, R.T) + t
             
-            # Flatten for processing
-            pts_flat = points_base[mask] # (N, 3)
+            pts_flat = points_base[mask]
             batch_ids = torch.arange(B, device=self.device).view(B, 1, 1).expand(B, H, W)[mask]
 
-            # 3. Gravity Alignment (Base -> Horizontal)
+            # 3. Gravity Alignment
             if robot_quat is not None:
-                q_b = robot_quat[batch_ids] # (N, 4)
-                
-                # A. Rotate Base -> World
+                q_b = robot_quat[batch_ids]
                 pts_world = quat_apply(q_b, pts_flat)
                 
-                # B. Rotate World -> Horizontal (Yaw-aligned)
                 w, x, y, z = q_b[:, 0], q_b[:, 1], q_b[:, 2], q_b[:, 3]
                 yaw = torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-                
-                # Construct quat for pure yaw rotation: [cos(y/2), 0, 0, sin(y/2)]
                 cy = torch.cos(yaw * 0.5)
                 sy = torch.sin(yaw * 0.5)
-                # Inverse of yaw rotation (conjugate)
                 q_yaw_inv = torch.stack([cy, torch.zeros_like(cy), torch.zeros_like(cy), -sy], dim=-1)
                 
-                # Final points in Horizontal Frame
                 pts_horiz = quat_apply(q_yaw_inv, pts_world)
-                
-                x_vals = pts_horiz[:, 0]
-                y_vals = pts_horiz[:, 1]
-                z_vals = pts_horiz[:, 2] 
-                
+                x_vals, y_vals, z_vals = pts_horiz[:, 0], pts_horiz[:, 1], pts_horiz[:, 2]
             else:
-                # Fallback if no quat provided
-                x_vals = pts_flat[:, 0]
-                y_vals = pts_flat[:, 1]
-                z_vals = pts_flat[:, 2]
+                x_vals, y_vals, z_vals = pts_flat[:, 0], pts_flat[:, 1], pts_flat[:, 2]
 
             # 4. Discretize
-            # Map [-Range, +Range] -> [0, MapSize]
             u_raw = ((x_vals + half_range) / self.map_res).long()
             v_raw = ((y_vals + half_range) / self.map_res).long()
             
-            # Boundary Check
             valid = (u_raw >= 0) & (u_raw < self.map_size) & (v_raw >= 0) & (v_raw < self.map_size)
             
-            u = u_raw[valid]
-            v = v_raw[valid]
-            b_id = batch_ids[valid]
-            z = z_vals[valid]
+            u, v, b_id, z = u_raw[valid], v_raw[valid], batch_ids[valid], z_vals[valid]
 
-            # 5. Axis Alignment to match GT (X-Up in Grid)
+            # 5. Axis Alignment (X-Up in Grid)
             row = (self.map_size - 1) - u
             col = (self.map_size - 1) - v
             
-            # 6. Scatter Max 
+            # 6. Scatter Max for Heights and Scatter Constant for Mask
             flat_indices = b_id * (self.map_size**2) + row * self.map_size + col
+            
             grid_flat.scatter_reduce_(0, flat_indices, z, reduce="amax", include_self=True)
+            # Set mask to 0.0 where we have at least one data point
+            mask_flat.scatter_(0, flat_indices, 0.0)
 
-        # Reshape
+        # Reshape and finalize
         height_map = grid_flat.view(B, 1, self.map_size, self.map_size)
+        occlusion_mask = mask_flat.view(B, 1, self.map_size, self.map_size)
         
-        # Clamp bottom
         height_map = torch.clamp(height_map, min=-2.0)
         
-        return height_map
+        return height_map, occlusion_mask
