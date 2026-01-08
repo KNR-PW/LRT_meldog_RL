@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Perception Evaluation Script for Meldog (V4 - U-Net + Occlusion Mask)
+Perception Evaluation Script for Meldog (V4.1 - Supports Base/Deep/Attention models)
 - Runs Locomotion + Perception.
 - Saves full dataset (all envs) to HDF5.
 - Visualization: 
@@ -10,8 +10,7 @@ Perception Evaluation Script for Meldog (V4 - U-Net + Occlusion Mask)
     [Left Depth]   [Right Depth]  [Sparse Map]
     [GT Height]    [Model Output] [Difference]
 - 3D View: Green markers (Model Output), Blue markers (Sparse Map) for ALL envs.
-- Fixed: Mirrored axes corrected, Yaw-aligned rotation.
-- ADAPTED: Model architecture matches training script (SparseMapRefiner V4)
+- V4.1: Added --deep and --attention flags to match training script
 """
 
 import argparse
@@ -33,7 +32,7 @@ def str2bool(v):
     else: raise argparse.ArgumentTypeError('Boolean value expected.')
 
 # Argument Parsing
-parser = argparse.ArgumentParser(description="Evaluate Perception Model V4 for Meldog")
+parser = argparse.ArgumentParser(description="Evaluate Perception Model V4.1 for Meldog")
 parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomotion-Policy-Direct-v0")
 parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel robots")
 parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Path to locomotion policy .pt file")
@@ -43,6 +42,9 @@ parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help=
 # VISUALIZATION TOGGLES
 parser.add_argument("--vis_model", type=str2bool, default=True, help="Visualize model output (Green markers)")
 parser.add_argument("--vis_sparse", type=str2bool, default=False, help="Visualize sparse input (Blue markers)")
+# MODEL ARCHITECTURE FLAGS (must match training)
+parser.add_argument("--deep", action="store_true", default=False, help="Use deeper 3-level encoder")
+parser.add_argument("--attention", action="store_true", default=False, help="Add self-attention at bottleneck")
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -72,15 +74,40 @@ TARGET_W = 424
 TARGET_H = 240
 
 # -----------------------------------------------------------------------------
-# MODEL: SPARSE MAP REFINER (V4 U-Net) - EXACT MATCH WITH TRAINING SCRIPT
+# SELF-ATTENTION BLOCK
+# -----------------------------------------------------------------------------
+class SelfAttention2D(nn.Module):
+    """Self-attention for capturing global terrain patterns"""
+    def __init__(self, channels, reduction=8):
+        super().__init__()
+        self.query = nn.Conv2d(channels, channels // reduction, 1)
+        self.key = nn.Conv2d(channels, channels // reduction, 1)
+        self.value = nn.Conv2d(channels, channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        
+    def forward(self, x):
+        B, C, H, W = x.shape
+        q = self.query(x).view(B, -1, H*W).permute(0, 2, 1)  # B, HW, C'
+        k = self.key(x).view(B, -1, H*W)                      # B, C', HW
+        v = self.value(x).view(B, -1, H*W)                    # B, C, HW
+        
+        attn = F.softmax(torch.bmm(q, k) / (C ** 0.5), dim=-1)  # B, HW, HW
+        out = torch.bmm(v, attn.permute(0, 2, 1)).view(B, C, H, W)
+        
+        return self.gamma * out + x
+
+# -----------------------------------------------------------------------------
+# MODEL: BASE 2-LEVEL ENCODER
 # -----------------------------------------------------------------------------
 class SparseMapRefiner(nn.Module):
-    def __init__(self):
+    def __init__(self, use_attention=False):
         super().__init__()
+        self.use_attention = use_attention
+        
         # Level 1: 40 -> 20
         self.enc1 = nn.Sequential(
             nn.Conv2d(2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.Conv2d(32, 32, 3, stride=2, padding=1) # Learnable downsample
+            nn.Conv2d(32, 32, 3, stride=2, padding=1)
         )
         # Level 2: 20 -> 10
         self.enc2 = nn.Sequential(
@@ -88,25 +115,96 @@ class SparseMapRefiner(nn.Module):
             nn.Conv2d(64, 64, 3, stride=2, padding=1)
         )
         
+        if use_attention:
+            self.attn = SelfAttention2D(64)
+        
         self.mlp_gravity = nn.Sequential(nn.Linear(3, 32), nn.ReLU(), nn.Linear(32, 32))
 
-        # Decoder with Transpose Convs for sharpness
+        # Decoder with Transpose Convs
         self.dec1 = nn.ConvTranspose2d(64 + 32, 32, kernel_size=4, stride=2, padding=1) 
         self.dec2 = nn.ConvTranspose2d(32 + 32, 16, kernel_size=4, stride=2, padding=1)
         self.final_conv = nn.Conv2d(16 + 2, 1, kernel_size=3, padding=1)
 
     def forward(self, x, mask, grav):
-        x_in = torch.cat([x, mask], dim=1) # B, 2, 40, 40
-        s1 = self.enc1(x_in)  # B, 32, 20, 20
-        s2 = self.enc2(s1)    # B, 64, 10, 10
+        x_in = torch.cat([x, mask], dim=1)
+        s1 = self.enc1(x_in)
+        s2 = self.enc2(s1)
+        
+        if self.use_attention:
+            s2 = self.attn(s2)
         
         B, _, H, W = s2.shape
         grav_embed = self.mlp_gravity(grav).view(B, 32, 1, 1).expand(B, 32, H, W)
         
-        up1 = self.dec1(torch.cat([s2, grav_embed], dim=1)) # B, 32, 20, 20
-        up2 = self.dec2(torch.cat([up1, s1], dim=1))       # B, 16, 40, 40
+        up1 = self.dec1(torch.cat([s2, grav_embed], dim=1))
+        up2 = self.dec2(torch.cat([up1, s1], dim=1))
         
         return self.final_conv(torch.cat([up2, x_in], dim=1))
+
+# -----------------------------------------------------------------------------
+# MODEL: DEEP 3-LEVEL ENCODER
+# -----------------------------------------------------------------------------
+class SparseMapRefinerDeep(nn.Module):
+    """Deeper encoder for more global context (40->20->10->5)"""
+    def __init__(self, use_attention=False):
+        super().__init__()
+        self.use_attention = use_attention
+        
+        # Level 1: 40 -> 20
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+            nn.Conv2d(32, 32, 3, stride=2, padding=1), nn.ReLU()
+        )
+        # Level 2: 20 -> 10
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU()
+        )
+        # Level 3: 10 -> 5
+        self.enc3 = nn.Sequential(
+            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+            nn.Conv2d(128, 128, 3, stride=2, padding=1), nn.ReLU()
+        )
+        
+        if use_attention:
+            self.attn = SelfAttention2D(128)
+        
+        # Gravity embedding at bottleneck
+        self.mlp_gravity = nn.Sequential(
+            nn.Linear(3, 64), nn.ReLU(), nn.Linear(64, 64)
+        )
+        
+        # Decoder: 5 -> 10 -> 20 -> 40
+        self.dec1 = nn.Sequential(
+            nn.ConvTranspose2d(128 + 64, 64, 4, 2, 1), nn.ReLU()
+        )
+        self.dec2 = nn.Sequential(
+            nn.ConvTranspose2d(64 + 64, 32, 4, 2, 1), nn.ReLU()
+        )
+        self.dec3 = nn.Sequential(
+            nn.ConvTranspose2d(32 + 32, 16, 4, 2, 1), nn.ReLU()
+        )
+        
+        self.final_conv = nn.Conv2d(16 + 2, 1, 3, padding=1)
+
+    def forward(self, x, mask, grav):
+        x_in = torch.cat([x, mask], dim=1)  # B, 2, 40, 40
+        
+        s1 = self.enc1(x_in)   # B, 32, 20, 20
+        s2 = self.enc2(s1)     # B, 64, 10, 10
+        s3 = self.enc3(s2)     # B, 128, 5, 5
+        
+        if self.use_attention:
+            s3 = self.attn(s3)
+        
+        B, _, H, W = s3.shape
+        grav_embed = self.mlp_gravity(grav).view(B, 64, 1, 1).expand(B, 64, H, W)
+        
+        up1 = self.dec1(torch.cat([s3, grav_embed], dim=1))  # B, 64, 10, 10
+        up2 = self.dec2(torch.cat([up1, s2], dim=1))          # B, 32, 20, 20
+        up3 = self.dec3(torch.cat([up2, s1], dim=1))          # B, 16, 40, 40
+        
+        return self.final_conv(torch.cat([up3, x_in], dim=1))
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -164,24 +262,12 @@ def process_map_centered(map_tensor, title, is_diff=False):
     return final_img
 
 def create_footer_panel(loco_name, perc_name, timestamp):
-    panel_h = 60
-    panel_w = TARGET_W * 3
-    panel = np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
-    
-    def fmt_name(path):
-        if not path: return "None"
-        parts = path.replace("\\", "/").split("/")
-        return f".../{parts[-2]}/{parts[-1]}" if len(parts) > 2 else path
+    footer = np.zeros((60, TARGET_W * 3, 3), dtype=np.uint8)
+    cv2.putText(footer, f"Loco: {os.path.basename(loco_name) if loco_name else 'N/A'}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(footer, f"Perc: {os.path.basename(perc_name) if perc_name else 'N/A'}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(footer, f"Time: {timestamp}", (TARGET_W * 2, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    return footer
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(panel, f"Loco: {fmt_name(loco_name)}", (20, 25), font, 0.4, (220, 220, 220), 1)
-    cv2.putText(panel, f"Perc: {fmt_name(perc_name)}", (20, 45), font, 0.4, (220, 220, 220), 1)
-    cv2.putText(panel, f"Timestamp: {timestamp}", (panel_w - 280, 35), font, 0.4, (220, 220, 220), 1)
-    return panel
-
-# -----------------------------------------------------------------------------
-# MAIN
-# -----------------------------------------------------------------------------
 def main():
     env_cfg = parse_env_cfg(args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs)
     agent_cfg = load_cfg_from_registry(args_cli.task, args_cli.agent)
@@ -196,12 +282,38 @@ def main():
 
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
-    model = SparseMapRefiner().to(env.device)
-    model.eval()  # Set to evaluation mode
+    # --- MODEL SELECTION ---
+    # Try to auto-detect from checkpoint config, otherwise use command line flags
+    use_deep = args_cli.deep
+    use_attention = args_cli.attention
     
     if args_cli.perception_checkpoint:
         checkpoint = torch.load(args_cli.perception_checkpoint, map_location=env.device)
         
+        # Try to read config from checkpoint
+        if isinstance(checkpoint, dict) and 'config' in checkpoint:
+            saved_config = checkpoint['config']
+            use_deep = saved_config.get('deep', args_cli.deep)
+            use_attention = saved_config.get('attention', args_cli.attention)
+            print(f"[INFO] Auto-detected from checkpoint: deep={use_deep}, attention={use_attention}")
+    
+    # Create model based on flags
+    if use_deep:
+        model = SparseMapRefinerDeep(use_attention=use_attention).to(env.device)
+        print(f"[INFO] Using DEEP model (3-level encoder)")
+    else:
+        model = SparseMapRefiner(use_attention=use_attention).to(env.device)
+        print(f"[INFO] Using BASE model (2-level encoder)")
+    
+    if use_attention:
+        print(f"[INFO] Self-attention ENABLED")
+    
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"[INFO] Model parameters: {n_params:,}")
+    
+    model.eval()  # Set to evaluation mode
+    
+    if args_cli.perception_checkpoint:
         # Handle both full checkpoint format and state_dict-only format
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
@@ -213,7 +325,7 @@ def main():
     else:
         print("[WARNING] No perception checkpoint provided. Using untrained model.")
 
-    save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V4_%Y-%m-%d_%H-%M-%S"))
+    save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V4.1_%Y-%m-%d_%H-%M-%S"))
     os.makedirs(save_dir, exist_ok=True)
     
     video_path = os.path.join(save_dir, "eval.mp4")
@@ -380,8 +492,9 @@ def main():
             grp.create_dataset("robot_quat",  data=np.array(buffers[i]["robot_quat"], dtype=np.float32))
 
     print(f"[INFO] Data saved. Entering Keep-Alive mode.")
-    while simulation_app.is_running():
-        obs, _, _, _ = env.step(policy(obs))
+    with torch.inference_mode():
+        while simulation_app.is_running():
+            obs, _, _, _ = env.step(policy(obs))
     env.close()
 
 if __name__ == "__main__":
