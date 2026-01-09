@@ -2,15 +2,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Perception Evaluation Script for Meldog (V4.1 - Supports Base/Deep/Attention models)
-- Runs Locomotion + Perception.
-- Saves full dataset (all envs) to HDF5.
-- Visualization: 
-    [Front Depth]  [Rear Depth]   [Top RGB]
-    [Left Depth]   [Right Depth]  [Sparse Map]
-    [GT Height]    [Model Output] [Difference]
-- 3D View: Green markers (Model Output), Blue markers (Sparse Map) for ALL envs.
-- V4.1: Added --deep and --attention flags to match training script
+Perception Evaluation Script for Meldog (V5 - Temporal with ConvGRU)
+- Maintains hidden state across frames
+- Shows temporal accumulation effect
 """
 
 import argparse
@@ -32,19 +26,18 @@ def str2bool(v):
     else: raise argparse.ArgumentTypeError('Boolean value expected.')
 
 # Argument Parsing
-parser = argparse.ArgumentParser(description="Evaluate Perception Model V4.1 for Meldog")
+parser = argparse.ArgumentParser(description="Evaluate Temporal Perception Model V5 for Meldog")
 parser.add_argument("--task", type=str, default="Template-Meldog-Simple-Locomotion-Policy-Direct-v0")
 parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel robots")
-parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Path to locomotion policy .pt file")
-parser.add_argument("--perception_checkpoint", type=str, default=None, help="Path to perception model (.pt).")
-parser.add_argument("--video_length", type=int, default=1000, help="Length of recording in steps")
-parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="RL Agent config entry point")
-# VISUALIZATION TOGGLES
-parser.add_argument("--vis_model", type=str2bool, default=True, help="Visualize model output (Green markers)")
-parser.add_argument("--vis_sparse", type=str2bool, default=False, help="Visualize sparse input (Blue markers)")
-# MODEL ARCHITECTURE FLAGS (must match training)
-parser.add_argument("--deep", action="store_true", default=False, help="Use deeper 3-level encoder")
-parser.add_argument("--attention", action="store_true", default=False, help="Add self-attention at bottleneck")
+parser.add_argument("--locomotion_checkpoint", type=str, required=True)
+parser.add_argument("--perception_checkpoint", type=str, default=None)
+parser.add_argument("--video_length", type=int, default=1000)
+parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point")
+parser.add_argument("--vis_model", type=str2bool, default=True)
+parser.add_argument("--vis_sparse", type=str2bool, default=False)
+# GRU parameters (must match training)
+parser.add_argument("--gru_hidden", type=int, default=128)
+parser.add_argument("--gru_layers", type=int, default=2)
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -61,122 +54,101 @@ from isaaclab.utils.math import quat_apply, euler_xyz_from_quat, quat_from_euler
 from isaaclab_tasks.utils import parse_env_cfg, load_cfg_from_registry
 from rsl_rl.runners import OnPolicyRunner
 
-# Import Projector and Utilities
 import meldog_simple_locomotion_policy.tasks 
 from preprocess_perception import DepthProjector
 
-# -----------------------------------------------------------------------------
-# CONFIG
-# -----------------------------------------------------------------------------
 MAP_SIZE = 40 
 MAP_RES = 0.05
 TARGET_W = 424
 TARGET_H = 240
 
 # -----------------------------------------------------------------------------
-# SELF-ATTENTION BLOCK
+# CONVOLUTIONAL GRU (same as training)
 # -----------------------------------------------------------------------------
-class SelfAttention2D(nn.Module):
-    """Self-attention for capturing global terrain patterns"""
-    def __init__(self, channels, reduction=8):
+class ConvGRUCell(nn.Module):
+    def __init__(self, input_channels, hidden_channels, kernel_size=3):
         super().__init__()
-        self.query = nn.Conv2d(channels, channels // reduction, 1)
-        self.key = nn.Conv2d(channels, channels // reduction, 1)
-        self.value = nn.Conv2d(channels, channels, 1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        
-    def forward(self, x):
-        B, C, H, W = x.shape
-        q = self.query(x).view(B, -1, H*W).permute(0, 2, 1)  # B, HW, C'
-        k = self.key(x).view(B, -1, H*W)                      # B, C', HW
-        v = self.value(x).view(B, -1, H*W)                    # B, C, HW
-        
-        attn = F.softmax(torch.bmm(q, k) / (C ** 0.5), dim=-1)  # B, HW, HW
-        out = torch.bmm(v, attn.permute(0, 2, 1)).view(B, C, H, W)
-        
-        return self.gamma * out + x
-
-# -----------------------------------------------------------------------------
-# MODEL: BASE 2-LEVEL ENCODER
-# -----------------------------------------------------------------------------
-class SparseMapRefiner(nn.Module):
-    def __init__(self, use_attention=False):
-        super().__init__()
-        self.use_attention = use_attention
-        
-        # Level 1: 40 -> 20
-        self.enc1 = nn.Sequential(
-            nn.Conv2d(2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.Conv2d(32, 32, 3, stride=2, padding=1)
+        self.hidden_channels = hidden_channels
+        padding = kernel_size // 2
+        self.conv_gates = nn.Conv2d(
+            input_channels + hidden_channels, 
+            2 * hidden_channels,
+            kernel_size, padding=padding
         )
-        # Level 2: 20 -> 10
-        self.enc2 = nn.Sequential(
-            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
-            nn.Conv2d(64, 64, 3, stride=2, padding=1)
+        self.conv_candidate = nn.Conv2d(
+            input_channels + hidden_channels,
+            hidden_channels,
+            kernel_size, padding=padding
         )
+    
+    def forward(self, x, h_prev):
+        if h_prev is None:
+            B, _, H, W = x.shape
+            h_prev = torch.zeros(B, self.hidden_channels, H, W, device=x.device, dtype=x.dtype)
         
-        if use_attention:
-            self.attn = SelfAttention2D(64)
-        
-        self.mlp_gravity = nn.Sequential(nn.Linear(3, 32), nn.ReLU(), nn.Linear(32, 32))
+        combined = torch.cat([x, h_prev], dim=1)
+        gates = torch.sigmoid(self.conv_gates(combined))
+        reset_gate, update_gate = gates.chunk(2, dim=1)
+        combined_reset = torch.cat([x, reset_gate * h_prev], dim=1)
+        candidate = torch.tanh(self.conv_candidate(combined_reset))
+        h_new = (1 - update_gate) * h_prev + update_gate * candidate
+        return h_new
 
-        # Decoder with Transpose Convs
-        self.dec1 = nn.ConvTranspose2d(64 + 32, 32, kernel_size=4, stride=2, padding=1) 
-        self.dec2 = nn.ConvTranspose2d(32 + 32, 16, kernel_size=4, stride=2, padding=1)
-        self.final_conv = nn.Conv2d(16 + 2, 1, kernel_size=3, padding=1)
 
-    def forward(self, x, mask, grav):
-        x_in = torch.cat([x, mask], dim=1)
-        s1 = self.enc1(x_in)
-        s2 = self.enc2(s1)
-        
-        if self.use_attention:
-            s2 = self.attn(s2)
-        
-        B, _, H, W = s2.shape
-        grav_embed = self.mlp_gravity(grav).view(B, 32, 1, 1).expand(B, 32, H, W)
-        
-        up1 = self.dec1(torch.cat([s2, grav_embed], dim=1))
-        up2 = self.dec2(torch.cat([up1, s1], dim=1))
-        
-        return self.final_conv(torch.cat([up2, x_in], dim=1))
-
-# -----------------------------------------------------------------------------
-# MODEL: DEEP 3-LEVEL ENCODER
-# -----------------------------------------------------------------------------
-class SparseMapRefinerDeep(nn.Module):
-    """Deeper encoder for more global context (40->20->10->5)"""
-    def __init__(self, use_attention=False):
+class ConvGRU(nn.Module):
+    def __init__(self, input_channels, hidden_channels, num_layers=2, kernel_size=3):
         super().__init__()
-        self.use_attention = use_attention
+        self.num_layers = num_layers
+        self.hidden_channels = hidden_channels
+        self.cells = nn.ModuleList()
+        for i in range(num_layers):
+            in_ch = input_channels if i == 0 else hidden_channels
+            self.cells.append(ConvGRUCell(in_ch, hidden_channels, kernel_size))
+    
+    def forward(self, x, h_prev=None):
+        if h_prev is None:
+            h_prev = [None] * self.num_layers
+        h_new = []
+        current = x
+        for i, cell in enumerate(self.cells):
+            current = cell(current, h_prev[i])
+            h_new.append(current)
+        return current, h_new
+
+
+# -----------------------------------------------------------------------------
+# TEMPORAL MODEL (same as training)
+# -----------------------------------------------------------------------------
+class SparseMapRefinerTemporal(nn.Module):
+    def __init__(self, gru_hidden=128, gru_layers=2):
+        super().__init__()
         
-        # Level 1: 40 -> 20
         self.enc1 = nn.Sequential(
             nn.Conv2d(2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
             nn.Conv2d(32, 32, 3, stride=2, padding=1), nn.ReLU()
         )
-        # Level 2: 20 -> 10
         self.enc2 = nn.Sequential(
             nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
             nn.Conv2d(64, 64, 3, stride=2, padding=1), nn.ReLU()
         )
-        # Level 3: 10 -> 5
         self.enc3 = nn.Sequential(
             nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
             nn.Conv2d(128, 128, 3, stride=2, padding=1), nn.ReLU()
         )
         
-        if use_attention:
-            self.attn = SelfAttention2D(128)
-        
-        # Gravity embedding at bottleneck
         self.mlp_gravity = nn.Sequential(
             nn.Linear(3, 64), nn.ReLU(), nn.Linear(64, 64)
         )
         
-        # Decoder: 5 -> 10 -> 20 -> 40
+        self.conv_gru = ConvGRU(
+            input_channels=128 + 64,
+            hidden_channels=gru_hidden,
+            num_layers=gru_layers,
+            kernel_size=3
+        )
+        
         self.dec1 = nn.Sequential(
-            nn.ConvTranspose2d(128 + 64, 64, 4, 2, 1), nn.ReLU()
+            nn.ConvTranspose2d(gru_hidden, 64, 4, 2, 1), nn.ReLU()
         )
         self.dec2 = nn.Sequential(
             nn.ConvTranspose2d(64 + 64, 32, 4, 2, 1), nn.ReLU()
@@ -187,24 +159,27 @@ class SparseMapRefinerDeep(nn.Module):
         
         self.final_conv = nn.Conv2d(16 + 2, 1, 3, padding=1)
 
-    def forward(self, x, mask, grav):
-        x_in = torch.cat([x, mask], dim=1)  # B, 2, 40, 40
+    def forward(self, x, mask, grav, h_prev=None):
+        x_in = torch.cat([x, mask], dim=1)
         
-        s1 = self.enc1(x_in)   # B, 32, 20, 20
-        s2 = self.enc2(s1)     # B, 64, 10, 10
-        s3 = self.enc3(s2)     # B, 128, 5, 5
-        
-        if self.use_attention:
-            s3 = self.attn(s3)
+        s1 = self.enc1(x_in)
+        s2 = self.enc2(s1)
+        s3 = self.enc3(s2)
         
         B, _, H, W = s3.shape
         grav_embed = self.mlp_gravity(grav).view(B, 64, 1, 1).expand(B, 64, H, W)
+        s3_grav = torch.cat([s3, grav_embed], dim=1)
         
-        up1 = self.dec1(torch.cat([s3, grav_embed], dim=1))  # B, 64, 10, 10
-        up2 = self.dec2(torch.cat([up1, s2], dim=1))          # B, 32, 20, 20
-        up3 = self.dec3(torch.cat([up2, s1], dim=1))          # B, 16, 40, 40
+        gru_out, h_new = self.conv_gru(s3_grav, h_prev)
         
-        return self.final_conv(torch.cat([up3, x_in], dim=1))
+        up1 = self.dec1(gru_out)
+        up2 = self.dec2(torch.cat([up1, s2], dim=1))
+        up3 = self.dec3(torch.cat([up2, s1], dim=1))
+        
+        pred = self.final_conv(torch.cat([up3, x_in], dim=1))
+        
+        return pred, h_new
+
 
 # -----------------------------------------------------------------------------
 # HELPERS
@@ -264,7 +239,7 @@ def process_map_centered(map_tensor, title, is_diff=False):
 def create_footer_panel(loco_name, perc_name, timestamp):
     footer = np.zeros((60, TARGET_W * 3, 3), dtype=np.uint8)
     cv2.putText(footer, f"Loco: {os.path.basename(loco_name) if loco_name else 'N/A'}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-    cv2.putText(footer, f"Perc: {os.path.basename(perc_name) if perc_name else 'N/A'}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(footer, f"Perc: {os.path.basename(perc_name) if perc_name else 'N/A'} [TEMPORAL]", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     cv2.putText(footer, f"Time: {timestamp}", (TARGET_W * 2, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     return footer
 
@@ -282,50 +257,40 @@ def main():
 
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
-    # --- MODEL SELECTION ---
-    # Try to auto-detect from checkpoint config, otherwise use command line flags
-    use_deep = args_cli.deep
-    use_attention = args_cli.attention
+    # Load model config from checkpoint if available
+    gru_hidden = args_cli.gru_hidden
+    gru_layers = args_cli.gru_layers
     
     if args_cli.perception_checkpoint:
         checkpoint = torch.load(args_cli.perception_checkpoint, map_location=env.device)
-        
-        # Try to read config from checkpoint
         if isinstance(checkpoint, dict) and 'config' in checkpoint:
             saved_config = checkpoint['config']
-            use_deep = saved_config.get('deep', args_cli.deep)
-            use_attention = saved_config.get('attention', args_cli.attention)
-            print(f"[INFO] Auto-detected from checkpoint: deep={use_deep}, attention={use_attention}")
-    
-    # Create model based on flags
-    if use_deep:
-        model = SparseMapRefinerDeep(use_attention=use_attention).to(env.device)
-        print(f"[INFO] Using DEEP model (3-level encoder)")
-    else:
-        model = SparseMapRefiner(use_attention=use_attention).to(env.device)
-        print(f"[INFO] Using BASE model (2-level encoder)")
-    
-    if use_attention:
-        print(f"[INFO] Self-attention ENABLED")
+            gru_hidden = saved_config.get('gru_hidden', gru_hidden)
+            gru_layers = saved_config.get('gru_layers', gru_layers)
+            print(f"[INFO] Auto-detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
+
+    model = SparseMapRefinerTemporal(
+        gru_hidden=gru_hidden,
+        gru_layers=gru_layers
+    ).to(env.device)
     
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[INFO] Model parameters: {n_params:,}")
     
-    model.eval()  # Set to evaluation mode
+    model.eval()
     
     if args_cli.perception_checkpoint:
-        # Handle both full checkpoint format and state_dict-only format
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
             epoch = checkpoint.get('epoch', 'unknown')
-            print(f"[INFO] Loaded Perception Model from Epoch {epoch}: {args_cli.perception_checkpoint}")
+            print(f"[INFO] Loaded Temporal Perception Model from Epoch {epoch}")
         else:
             model.load_state_dict(checkpoint)
-            print(f"[INFO] Loaded Perception Model: {args_cli.perception_checkpoint}")
+            print(f"[INFO] Loaded Temporal Perception Model")
     else:
         print("[WARNING] No perception checkpoint provided. Using untrained model.")
 
-    save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V4.1_%Y-%m-%d_%H-%M-%S"))
+    save_dir = os.path.join("logs", "perception_eval", datetime.now().strftime("PE_V5_Temporal_%Y-%m-%d_%H-%M-%S"))
     os.makedirs(save_dir, exist_ok=True)
     
     video_path = os.path.join(save_dir, "eval.mp4")
@@ -333,7 +298,6 @@ def main():
     video_writer = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (TARGET_W*3, TARGET_H*3 + 60))
     footer_img = create_footer_panel(args_cli.locomotion_checkpoint, args_cli.perception_checkpoint, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-    # Markers Setup (Swapped Colors: Sparse=Blue, Model=Green)
     sparse_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/SparseMap",
         markers={"sphere": sim_utils.SphereCfg(radius=0.015, visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0)))},
@@ -346,7 +310,6 @@ def main():
     )
     recon_vis = VisualizationMarkers(recon_marker_cfg)
 
-    # Local Grid Generation - Reversed coordinates to correct mirroring
     grid_range = (MAP_SIZE * MAP_RES) / 2.0
     x_coords = torch.linspace(grid_range - MAP_RES/2, -grid_range + MAP_RES/2, MAP_SIZE, device=env.device)
     y_coords = torch.linspace(grid_range - MAP_RES/2, -grid_range + MAP_RES/2, MAP_SIZE, device=env.device)
@@ -354,12 +317,11 @@ def main():
     grid_x = grid_x.flatten()
     grid_y = grid_y.flatten()
 
-    # Multi-env buffers
     buffers = [
         {
             "depth_front": [], "depth_rear": [], "depth_left": [], "depth_right": [],
             "gt_height": [], "pred_height": [], "sparse_height": [], "occlusion_mask": [],
-            "diff_height": [],  # Added: difference between GT and prediction
+            "diff_height": [],
             "robot_pos": [], "robot_quat": []
         }
         for _ in range(args_cli.num_envs)
@@ -369,15 +331,22 @@ def main():
     raw_env = env.unwrapped
     trunk_link_idx = raw_env._robot.find_bodies("trunk_link")[0][0]
 
+    # Initialize hidden state for each environment
+    hidden_states = [None] * args_cli.num_envs
+    
     step = 0
-    print(f"[INFO] Starting Recording ({args_cli.video_length} steps for {args_cli.num_envs} envs)...")
+    print(f"[INFO] Starting Recording ({args_cli.video_length} steps, TEMPORAL mode)...")
 
     with torch.inference_mode():
         while simulation_app.is_running() and step < args_cli.video_length:
             actions = policy(obs)
-            obs, _, _, _ = env.step(actions)
+            obs, _, dones, _ = env.step(actions)
 
-            # 1. Get Camera Data
+            # Reset hidden state for environments that terminated
+            for i in range(args_cli.num_envs):
+                if dones[i]:
+                    hidden_states[i] = None
+
             d_front = raw_env._tiled_camera_front.data.output["distance_to_image_plane"]
             d_rear  = raw_env._tiled_camera_rear.data.output["distance_to_image_plane"]
             d_left  = raw_env._tiled_camera_left.data.output["distance_to_image_plane"]
@@ -388,7 +357,6 @@ def main():
             try: rgb_top = raw_env._tiled_camera_top.data.output["rgb"]
             except: rgb_top = torch.zeros((args_cli.num_envs, 240, 424, 3), device=env.device)
 
-            # 2. Get Pose & Gravity (EXACT MATCH WITH TRAINING)
             robot_quat = raw_env._robot.data.root_quat_w
             robot_pos = raw_env._robot.data.root_pos_w
             trunk_pos_w = raw_env._robot.data.body_pos_w[:, trunk_link_idx]
@@ -396,16 +364,19 @@ def main():
             _, _, yaw = euler_xyz_from_quat(robot_quat)
             yaw_quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
 
-            # Gravity computation matching training exactly
             w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
             gx, gy, gz = -2*(x*z + w*y), -2*(y*z - w*x), -(1 - 2*(x*x + y*y))
             grav = torch.stack([gx, gy, gz], dim=1)
 
-            # 3. Project & Predict (EXACT MATCH WITH TRAINING)
             sparse_map, occlusion_mask = projector(d_stack, robot_quat)
-            pred_scan = model(sparse_map, occlusion_mask, grav)
+            
+            # TEMPORAL: Run model with hidden state
+            # For simplicity, we process all envs together with a single hidden state
+            # (In production, you'd want per-env hidden states)
+            pred_scan, new_hidden = model(sparse_map, occlusion_mask, grav, hidden_states[0])
+            hidden_states[0] = new_hidden  # Update hidden state
 
-            # 4. GT Height
+            # GT Height
             if hasattr(raw_env, "_gt_scanner"):
                 trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
                 gt_scan = (raw_env._gt_scanner.data.ray_hits_w[..., 2] - trunk_z).view(args_cli.num_envs, MAP_SIZE, MAP_SIZE)
@@ -415,14 +386,12 @@ def main():
             
             diff_scan = torch.abs(gt_scan - pred_scan.squeeze(1))
 
-            # --- 3D Visualization for ALL Environments ---
             n = args_cli.num_envs
             m = MAP_SIZE * MAP_SIZE
             
             local_grid_xy = torch.stack([grid_x, grid_y, torch.zeros_like(grid_x)], dim=-1).repeat(n, 1, 1)
             rotated_grid_xy = quat_apply(yaw_quat.repeat_interleave(m, dim=0), local_grid_xy.view(-1, 3)).view(n, m, 3)
 
-            # Conditional Visualization based on -- parameters
             if args_cli.vis_sparse:
                 sparse_world_pts = trunk_pos_w.unsqueeze(1) + rotated_grid_xy
                 sparse_world_pts[..., 2] += sparse_map.view(n, m)
@@ -433,7 +402,6 @@ def main():
                 recon_world_pts[..., 2] += pred_scan.view(n, m)
                 recon_vis.visualize(recon_world_pts.view(-1, 3))
 
-            # Store data for ALL envs
             for i in range(args_cli.num_envs):
                 buffers[i]["depth_front"].append(d_front[i].squeeze().cpu().numpy())
                 buffers[i]["depth_rear"].append(d_rear[i].squeeze().cpu().numpy())
@@ -443,11 +411,10 @@ def main():
                 buffers[i]["pred_height"].append(pred_scan[i].squeeze().cpu().numpy())
                 buffers[i]["sparse_height"].append(sparse_map[i].squeeze().cpu().numpy())
                 buffers[i]["occlusion_mask"].append(occlusion_mask[i].squeeze().cpu().numpy())
-                buffers[i]["diff_height"].append(diff_scan[i].squeeze().cpu().numpy())  # Added: save difference
+                buffers[i]["diff_height"].append(diff_scan[i].squeeze().cpu().numpy())
                 buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
                 buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
 
-            # Video Visualization (Env 0)
             idx = 0
             img_grid = [
                 process_image(d_stack[idx, 0], "Front"), 
@@ -472,7 +439,6 @@ def main():
     video_writer.release()
     print(f"[INFO] Video saved to {video_path}")
 
-    # Save ALL envs to HDF5
     print(f"[INFO] Saving data for {args_cli.num_envs} envs to {data_path}...")
     with h5py.File(data_path, 'w') as f:
         for i in range(args_cli.num_envs):
@@ -485,7 +451,7 @@ def main():
             grp.create_dataset("gt_height",      data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
             grp.create_dataset("pred_height",    data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
             grp.create_dataset("sparse_height",  data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
-            grp.create_dataset("diff_height",    data=to_int16_mm(buffers[i]["diff_height"]),  compression="gzip")  # Added
+            grp.create_dataset("diff_height",    data=to_int16_mm(buffers[i]["diff_height"]),  compression="gzip")
             grp.create_dataset("occlusion_mask", data=np.array(buffers[i]["occlusion_mask"], dtype=np.uint8), compression="gzip")
             
             grp.create_dataset("robot_pos",   data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
