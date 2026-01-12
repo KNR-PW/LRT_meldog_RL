@@ -1,135 +1,111 @@
-# Template for Isaac Lab Projects
+# MelDog — Perceptive Locomotion for Quadruped Robot
+
+End-to-end framework for developing locomotion and perception policies for a quadruped robot using reinforcement learning and supervised learning.
+
+## Demo
+
+### Locomotion Policy
+https://github.com/user-attachments/assets/dd9ced4d-5dec-434a-a274-5dd069e8d532
+
+### Terrain Perception
+https://github.com/user-attachments/assets/db0f350c-b0d0-448f-b501-6933fc37bb87
+
 
 ## Overview
 
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+This project provides a complete pipeline for training perceptive locomotion:
 
-**Key Features:**
+1. **Train locomotion policy** — RL-based controller (PPO) that learns to walk on varied terrain
+2. **Collect perception dataset** — use trained locomotion to gather depth camera observations with ground truth height maps
+3. **Train perception model** — supervised learning to reconstruct dense terrain from sparse observations
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
+## Perception Models
 
-**Keywords:** extension, template, isaaclab
+Currently there are three functioning versions of the terrain perception network:
+
+| Model | Architecture | Key Feature | Parameters |
+|-------|-------------|-------------|------------|
+| **V1 Base** | 2-level U-Net | Gravity conditioning | ~130K |
+| **V2 Deep** | 3-level U-Net | Self-attention in bottleneck | ~590K |
+| **V3 Temporal** | 3-level U-Net + ConvGRU | Temporal memory across frames | ~850K |
+
+**Input:** Sparse height map (40×40) from 4 depth cameras + gravity vector from IMU  
+**Output:** Dense height map (40×40) with filled occlusions
+
+### V1 — Base Model
+Standard U-Net encoder-decoder with skip connections. Gravity vector is embedded via MLP and injected at the bottleneck.
+
+### V2 — Deep + Attention
+Deeper encoder (additional level down to 5×5) with self-attention mechanism. Larger receptive field allows the network to capture global terrain structure.
+
+### V3 — Temporal
+Adds ConvGRU layers that maintain hidden state across frames. The network builds a "belief state" about terrain — remembering previously observed regions that are now occluded.
+
+## Project Structure
+This project uses Isaac Lab direct workflow project template. My work mostly consists of these files:
+```
+├── scripts/
+│   ├── train_locomotion.py
+│   ├── play_locomotion.py
+│   ├── play_locomotion_keyboard.py
+│   └── evaluate_locomotion.py
+├── source/
+│   └── meldog_simple_locomotion_policy/
+│       ├── meldog_simple_locomotion_policy_env.py
+│       └── meldog_simple_locomotion_policy_env_cfg.py
+└── README.md
+```
 
 ## Installation
 
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda or uv installation as it simplifies calling Python scripts from the terminal.
+This project is built on the [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) template.
 
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
+1. Install Isaac Lab following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html)
 
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
+2. Activate the conda environment:
+   ```bash
+   conda activate isaaclab
+   ```
 
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/meldog_simple_locomotion_policy
+3. Clone this repository and install in editable mode:
+   ```bash
+   ./isaaclab.sh -p -m pip install -e source/meldog_simple_locomotion_policy
+   ```
 
-- Verify that the extension is correctly installed by:
+4. Verify installation:
+   ```bash
+   ./isaaclab.sh -p scripts/list_envs.py
+   ```
 
-    - Listing the available tasks:
+## Usage
 
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
+All scripts are launched via `./isaaclab.sh -p` from the Isaac Lab directory with the `isaaclab` conda environment active.
 
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu.
-  When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory.
-The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse.
-This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-### Setup as Omniverse Extension (Optional)
-
-We provide an example UI extension that will load upon enabling your extension defined in `source/meldog_simple_locomotion_policy/meldog_simple_locomotion_policy/ui_extension_example.py`.
-
-To enable your extension, follow these steps:
-
-1. **Add the search path of this project/repository** to the extension manager:
-    - Navigate to the extension manager using `Window` -> `Extensions`.
-    - Click on the **Hamburger Icon**, then go to `Settings`.
-    - In the `Extension Search Paths`, enter the absolute path to the `source` directory of this project/repository.
-    - If not already present, in the `Extension Search Paths`, enter the path that leads to Isaac Lab's extension directory directory (`IsaacLab/source`)
-    - Click on the **Hamburger Icon**, then click `Refresh`.
-
-2. **Search and enable your extension**:
-    - Find your extension under the `Third Party` category.
-    - Toggle it to enable your extension.
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
-
+### Train locomotion policy
 ```bash
-pip install pre-commit
+./isaaclab.sh -p scripts/rsl_rl/train.py --task=MelDog-Locomotion-v0
 ```
 
-Then you can run pre-commit with:
-
+### Run trained policy
 ```bash
-pre-commit run --all-files
+./isaaclab.sh -p scripts/play_locomotion.py --checkpoint=path/to/model.pt
 ```
 
-## Troubleshooting
-
-### Pylance Missing Indexing of Extensions
-
-In some VsCode versions, the indexing of part of the extensions is missing.
-In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
-
-```json
-{
-    "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/meldog_simple_locomotion_policy"
-    ]
-}
+### Evaluate with keyboard control
+```bash
+./isaaclab.sh -p scripts/play_locomotion_keyboard.py
 ```
 
-### Pylance Crash
-
-If you encounter a crash in `pylance`, it is probable that too many files are indexed and you run out of memory.
-A possible solution is to exclude some of omniverse packages that are not used in your project.
-To do so, modify `.vscode/settings.json` and comment out packages under the key `"python.analysis.extraPaths"`
-Some examples of packages that can likely be excluded are:
-
-```json
-"<path-to-isaac-sim>/extscache/omni.anim.*"         // Animation packages
-"<path-to-isaac-sim>/extscache/omni.kit.*"          // Kit UI tools
-"<path-to-isaac-sim>/extscache/omni.graph.*"        // Graph UI tools
-"<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
-...
+### Collect perception dataset
+```bash
+./isaaclab.sh -p scripts/collect_perception_data.py --checkpoint=path/to/locomotion.pt --output=dataset/
 ```
+
+### Train perception model
+```bash
+python train_perception.py --data=dataset/ --model=v3_temporal
+```
+
+## Acknowledgments
+
+Built using [Isaac Lab](https://github.com/isaac-sim/IsaacLab) simulation framework and project template.
