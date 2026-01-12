@@ -73,6 +73,7 @@ if version.parse(installed_version) < version.parse(RSL_RL_VERSION):
 """Rest everything follows."""
 
 import gymnasium as gym
+import logging
 import os
 import torch
 from datetime import datetime
@@ -140,7 +141,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
     # specify directory for logging runs: {time-stamp}_{run_name}
-    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_dir = datetime.now().strftime("LM_v0_%Y-%m-%d_%H-%M-%S")
     # The Ray Tune workflow extracts experiment name using the logging line below, hence, do not change it (see PR #2346, comment-2819298849)
     print(f"Exact experiment name requested from command line: {log_dir}")
     if agent_cfg.run_name:
@@ -150,10 +151,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the IO descriptors export flag if requested
     if isinstance(env_cfg, ManagerBasedRLEnvCfg):
         env_cfg.export_io_descriptors = args_cli.export_io_descriptors
-    else:
-        omni.log.warn(
-            "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
-        )
+    # THIS BROKE AFTER AWS -> PC MIGRATION 
+    # else:
+        # logger.warning(
+        #     "IO descriptors are only supported for manager based RL environments. No IO descriptors will be exported."
+        # )
 
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
