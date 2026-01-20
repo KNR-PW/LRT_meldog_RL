@@ -19,7 +19,7 @@ class MeldogPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     device = "cuda:0"
     num_steps_per_env = 24
     max_iterations = 5000
-    save_interval = 100  # Save every 100 iterations (was 500)
+    save_interval = 100  # Save every 100 iterations
     experiment_name = "meldog_rl_locomotion"
     empirical_normalization = False
     

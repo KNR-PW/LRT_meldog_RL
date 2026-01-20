@@ -254,7 +254,7 @@ HEIGHT_SCANNER_CFG = RayCasterCfg(
     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
     ray_alignment="yaw",
     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-    debug_vis=False,
+    debug_vis=True,
     mesh_prim_paths=["/World/ground"],
 )
 
@@ -377,17 +377,21 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     # Terrain (override in subclass)
     terrain: TerrainImporterCfg = None  # Must be set by subclass
     
-    # Gait parameters
+# -- KEY PARAMETERS -- 
+
     feet_air_time = 0.3
+
+# -- REWARDS --
+    lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
+    yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
+    z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
+    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
     
-    # Reward scales (tuned for Meldog)
-    lin_vel_reward_scale = 1.5
-    yaw_rate_reward_scale = 0.7
-    z_vel_reward_scale = -2.0
-    ang_vel_reward_scale = -0.05
-    joint_torque_reward_scale = -1.0e-4
-    joint_accel_reward_scale = -2.5e-7
-    action_rate_reward_scale = -0.01
-    feet_air_time_reward_scale = 0.3
-    undesired_contact_reward_scale = -1.0
-    flat_orientation_reward_scale = -0.0
+    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -2.5e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
+    
+    feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
+    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
+    
+    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
