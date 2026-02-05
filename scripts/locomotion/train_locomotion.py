@@ -2,21 +2,7 @@
 # Copyright (c) 2022-2025, Meldog Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Train Meldog locomotion policy with RSL-RL.
-
-Usage:
-    # Train on rough terrain (simulation)
-    python scripts/locomotion/train_locomotion.py --task Meldog-RL-Locomotion-Rough-Sim-v0
-    
-    # Train on flat terrain (sim2real)
-    python scripts/locomotion/train_locomotion.py --task Meldog-RL-Locomotion-Flat-Real-v0
-    
-    # With custom settings
-    python scripts/locomotion/train_locomotion.py \
-        --task Meldog-RL-Locomotion-Rough-Sim-v0 \
-        --num_envs 4096 \
-        --max_iterations 5000
-"""
+"""Train Meldog locomotion policy with RSL-RL."""
 
 import argparse
 import sys
@@ -60,10 +46,7 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# ============================================================================
-# Imports after AppLauncher (simulator must be running)
-# ============================================================================
-
+# Imports after AppLauncher
 import gymnasium as gym
 import torch
 from datetime import datetime

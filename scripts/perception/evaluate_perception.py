@@ -2,29 +2,7 @@
 # Copyright (c) 2022-2025, Meldog Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Evaluate perception model with 3D visualization and video recording.
-
-Supports:
-- V5 (HeightmapConvGRU): Temporal model with hidden state
-- V6 (HeightmapAutoregressive): Autoregressive model (TODO)
-
-Features:
-- 3D visualization of predicted terrain as point cloud
-- Video recording with depth images, sparse map, GT, prediction
-- Data saving to H5 for offline analysis
-
-Usage:
-    python scripts/perception/evaluate_perception.py \
-        --task Meldog-RL-Dataset-Rough-v0 \
-        --locomotion_checkpoint logs/locomotion/LM_rough_sim_.../model_500.pt \
-        --perception_checkpoint logs/perception/PM_v5_rough_.../model_best.pt \
-        --video_length 500
-
-Output:
-    logs/perception_eval/PE_{model}_{timestamp}/
-    ├── eval.mp4
-    └── data.h5
-"""
+"""Evaluate perception model with 3D visualization and video recording."""
 
 import argparse
 import os
@@ -71,8 +49,6 @@ args_cli.enable_cameras = True
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-# ============================================================================
-
 import gymnasium as gym
 import torch
 import numpy as np
@@ -90,20 +66,11 @@ from meldog_rl import envs, agents
 from meldog_rl.models.perception import HeightmapConvGRU, HeightmapAutoregressive, DepthProjector
 from meldog_rl.utils import make_evaluation_dir
 
-
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-
 MAP_SIZE = 40
 MAP_RES = 0.05
 TARGET_W = 424
 TARGET_H = 240
 
-
-# =============================================================================
-# VISUALIZATION HELPERS
-# =============================================================================
 
 def to_uint16_mm(data_list):
     """Convert depth to uint16 millimeters."""
@@ -177,10 +144,6 @@ def create_footer_panel(loco_name, perc_name, model_type, timestamp):
     return footer
 
 
-# =============================================================================
-# MAIN
-# =============================================================================
-
 def main():
     """Evaluate perception model."""
     
@@ -192,12 +155,11 @@ def main():
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.sim.device = args_cli.device if args_cli.device else "cuda:0"
     
-    print(f"[INFO] Creating environment: {args_cli.task}")
+    print(f"Creating environment: {args_cli.task}")
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-    
-    # Load locomotion policy
-    print(f"[INFO] Loading locomotion policy: {args_cli.locomotion_checkpoint}")
+
+    print(f"Loading locomotion policy: {args_cli.locomotion_checkpoint}")
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=env.device)
     runner.load(args_cli.locomotion_checkpoint)
     policy = runner.get_inference_policy(device=env.device)
@@ -215,7 +177,7 @@ def main():
             saved_config = checkpoint['config']
             gru_hidden = saved_config.get('gru_hidden', gru_hidden)
             gru_layers = saved_config.get('gru_layers', gru_layers)
-            print(f"[INFO] Auto-detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
+            print(f"Detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
     
     # Create model
     if args_cli.model == "v5":
@@ -227,21 +189,20 @@ def main():
         model = HeightmapAutoregressive().to(env.device)
     
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[INFO] Model parameters: {n_params:,}")
-    
+    print(f"Model parameters: {n_params:,}")
+
     model.eval()
-    
-    # Load perception weights
+
     if args_cli.perception_checkpoint:
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
             epoch = checkpoint.get('epoch', 'unknown')
-            print(f"[INFO] Loaded perception model from epoch {epoch}")
+            print(f"Loaded perception model from epoch {epoch}")
         else:
             model.load_state_dict(checkpoint)
-            print(f"[INFO] Loaded perception model")
+            print("Loaded perception model")
     else:
-        print("[WARNING] No perception checkpoint provided. Using untrained model.")
+        print("Warning: No perception checkpoint, using untrained model")
     
     # Output directory
     save_dir = make_evaluation_dir("perception", args_cli.model)
@@ -262,8 +223,8 @@ def main():
         args_cli.model,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
-    
-    print(f"[INFO] Saving to: {save_dir}")
+
+    print(f"Saving to: {save_dir}")
     
     # Create visualization markers
     sparse_marker_cfg = VisualizationMarkersCfg(
@@ -309,9 +270,8 @@ def main():
     
     raw_env = env.unwrapped
     
-    # Verify cameras
     if raw_env._cameras.get("front") is None:
-        print("[ERROR] Cameras not configured! Use a Dataset task.")
+        print("Error: Cameras not configured, use a Dataset task")
         env.close()
         return
     
@@ -326,9 +286,9 @@ def main():
     prev_valids = [torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device) for _ in range(args_cli.num_envs)]
     prev_positions = [None] * args_cli.num_envs
     prev_yaws = [None] * args_cli.num_envs
-    
+
     step = 0
-    print(f"[INFO] Starting recording ({args_cli.video_length} steps, {args_cli.model.upper()} mode)...")
+    print(f"Recording {args_cli.video_length} steps ({args_cli.model.upper()} mode)")
     
     with torch.inference_mode():
         while simulation_app.is_running() and step < args_cli.video_length:
@@ -469,10 +429,9 @@ def main():
                 print(f"Recording... {step}/{args_cli.video_length}")
     
     video_writer.release()
-    print(f"[INFO] Video saved to {video_path}")
-    
-    # Save data
-    print(f"[INFO] Saving data to {data_path}...")
+    print(f"Video saved to {video_path}")
+
+    print(f"Saving data to {data_path}...")
     with h5py.File(data_path, 'w') as f:
         for i in range(args_cli.num_envs):
             grp = f.create_group(f"env_{i}")
@@ -489,16 +448,16 @@ def main():
             
             grp.create_dataset("robot_pos",  data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
             grp.create_dataset("robot_quat", data=np.array(buffers[i]["robot_quat"], dtype=np.float32))
-    
-    print(f"[INFO] Data saved.")
-    print(f"[INFO] Entering keep-alive mode (Ctrl+C to exit)...")
+
+    print("Data saved")
+    print("Entering keep-alive mode (Ctrl+C to exit)")
     
     with torch.inference_mode():
         while simulation_app.is_running():
             obs, _, _, _ = env.step(policy(obs))
-    
+
     env.close()
-    print("[DONE] Evaluation complete.")
+    print("Evaluation complete")
 
 
 if __name__ == "__main__":
