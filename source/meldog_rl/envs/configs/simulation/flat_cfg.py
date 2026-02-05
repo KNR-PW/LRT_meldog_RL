@@ -35,6 +35,9 @@ class FlatSimCfg(BaseMeldogEnvCfg):
         debug_vis=False,
     )
     
+    # Override base config
+    flat_orientation_reward_scale = -5.0
+
     # Base domain randomization (minimal)
     events: BaseEventCfg = BaseEventCfg()
     
