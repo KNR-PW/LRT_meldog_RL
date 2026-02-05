@@ -3,17 +3,7 @@
 
 """3D Voxel prediction using sparse convolutions.
 
-TODO: Implement 3D terrain representation using sparse CNNs.
-
-This model will:
-- Take depth images as input
-- Predict 3D voxel grid around robot
-- Use sparse convolutions for efficiency
-- Handle occluded regions
-
-References:
-- Locomotion_Policy_Guided_Traversability_Learning_using_Volumetric_Representations.pdf
-- MinkowskiEngine / TorchSparse for sparse convolutions
+TODO: Implement using MinkowskiEngine or TorchSparse.
 """
 
 import torch

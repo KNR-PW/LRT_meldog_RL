@@ -29,9 +29,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 
-# =============================================================================
 # USD Path Configuration
-# =============================================================================
 # Set MELDOG_USD_PATH environment variable or place USD in assets/robots/meldog/
 def _get_usd_path() -> str:
     """Get robot USD path with fallback options."""
@@ -65,9 +63,7 @@ def _get_usd_path() -> str:
 MELDOG_USD_PATH = _get_usd_path()
 
 
-# =============================================================================
 # Robot Definition
-# =============================================================================
 MELDOG_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=MELDOG_USD_PATH,
@@ -110,9 +106,7 @@ MELDOG_CFG = ArticulationCfg(
 )
 
 
-# =============================================================================
 # Domain Randomization - Base (Minimal)
-# =============================================================================
 @configclass
 class BaseEventCfg:
     """Minimal domain randomization for simulation training."""
@@ -140,9 +134,7 @@ class BaseEventCfg:
     )
 
 
-# =============================================================================
 # Domain Randomization - Sim2Real (Aggressive)
-# =============================================================================
 @configclass
 class Sim2RealEventCfg(BaseEventCfg):
     """Aggressive domain randomization for sim-to-real transfer."""
@@ -170,16 +162,10 @@ class Sim2RealEventCfg(BaseEventCfg):
         },
     )
     
-    # TODO: Add more randomization for sim2real:
-    # - Motor strength randomization
-    # - Observation noise
-    # - Action delay
-    # - Joint friction
+    # TODO: Add motor strength randomization, observation noise, action delay, joint friction
 
 
-# =============================================================================
 # Camera Definitions
-# =============================================================================
 _DEPTH_CAMERA_COMMON = TiledCameraCfg(
     prim_path="/World/envs/env_.*/Robot/meldog_core/trunk_link/camera_.*",
     update_period=0.05,
@@ -237,9 +223,7 @@ CAMERA_TOP.offset = TiledCameraCfg.OffsetCfg(
 )
 
 
-# =============================================================================
 # Sensor Definitions
-# =============================================================================
 CONTACT_SENSOR_CFG = ContactSensorCfg(
     prim_path="/World/envs/env_.*/Robot/meldog_core/.*link",
     history_length=3,
@@ -269,9 +253,7 @@ GT_SCANNER_CFG = RayCasterCfg(
 )
 
 
-# =============================================================================
 # Visualization Markers
-# =============================================================================
 LIN_VEL_MARKER_CFG = VisualizationMarkersCfg(
     prim_path="/Visuals/LinArrow",
     markers={
@@ -305,9 +287,7 @@ CONTACT_MARKER_CFG = VisualizationMarkersCfg(
 )
 
 
-# =============================================================================
 # Base Environment Config
-# =============================================================================
 @configclass
 class BaseMeldogEnvCfg(DirectRLEnvCfg):
     """Base configuration shared by all Meldog environments.
