@@ -45,14 +45,11 @@ from .configs import (
     RoughObsDatasetCfg,
 )
 
-# Agent configs will be loaded from the agents module
+# Agent configs
 from ..agents import MeldogFlatPPORunnerCfg, MeldogRoughPPORunnerCfg
 
 
-# =============================================================================
-# LOCOMOTION - SIMULATION
-# =============================================================================
-
+# Locomotion - Simulation
 gym.register(
     id="Meldog-RL-Locomotion-Flat-Sim-v0",
     entry_point="meldog_rl.envs:MeldogEnv",
@@ -94,10 +91,7 @@ gym.register(
 )
 
 
-# =============================================================================
-# LOCOMOTION - SIM2REAL
-# =============================================================================
-
+# Locomotion - Sim2Real
 gym.register(
     id="Meldog-RL-Locomotion-Flat-Real-v0",
     entry_point="meldog_rl.envs:MeldogEnv",
@@ -139,10 +133,7 @@ gym.register(
 )
 
 
-# =============================================================================
-# DATASET COLLECTION
-# =============================================================================
-
+# Dataset Collection
 gym.register(
     id="Meldog-RL-Dataset-Flat-v0",
     entry_point="meldog_rl.envs:MeldogEnv",
