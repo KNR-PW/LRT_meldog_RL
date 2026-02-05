@@ -45,8 +45,8 @@ from .configs import (
     RoughObsDatasetCfg,
 )
 
-# Agent config will be loaded from the agents module
-from ..agents import MeldogPPORunnerCfg
+# Agent configs will be loaded from the agents module
+from ..agents import MeldogFlatPPORunnerCfg, MeldogRoughPPORunnerCfg
 
 
 # =============================================================================
@@ -59,7 +59,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatSimCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -69,7 +69,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughSimCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 
@@ -79,7 +79,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatObsSimCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -89,7 +89,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughObsSimCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 
@@ -104,7 +104,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatRealCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -114,7 +114,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughRealCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 
@@ -124,7 +124,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatObsRealCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -134,7 +134,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughObsRealCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 
@@ -149,7 +149,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatDatasetCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -159,7 +159,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughDatasetCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 
@@ -169,7 +169,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlatObsDatasetCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatPPORunnerCfg,
     },
 )
 
@@ -179,7 +179,7 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughObsDatasetCfg,
-        "rsl_rl_cfg_entry_point": MeldogPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
     },
 )
 

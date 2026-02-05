@@ -3,6 +3,9 @@
 
 """Agent configurations for Meldog RL."""
 
-from .rsl_rl_ppo_cfg import MeldogPPORunnerCfg
+from .rsl_rl_ppo_cfg import MeldogFlatPPORunnerCfg, MeldogRoughPPORunnerCfg
 
-__all__ = ["MeldogPPORunnerCfg"]
+__all__ = [
+    "MeldogFlatPPORunnerCfg",
+    "MeldogRoughPPORunnerCfg",
+]
