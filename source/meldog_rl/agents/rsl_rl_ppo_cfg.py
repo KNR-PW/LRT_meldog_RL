@@ -19,9 +19,6 @@ class MeldogFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 50
     experiment_name = "meldog_flat"
 
-    # Clip actions to [-1, 1] range
-    clip_actions = 1.0
-
     policy: RslRlPpoActorCriticCfg = RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
         init_noise_std=1.0,
@@ -37,7 +34,7 @@ class MeldogFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        entropy_coef=0.005,
+        entropy_coef=0.01,
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,
@@ -60,9 +57,6 @@ class MeldogRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 1500
     save_interval = 50
     experiment_name = "meldog_rough"
-
-    # Clip actions to [-1, 1] range
-    clip_actions = 1.0
 
     policy: RslRlPpoActorCriticCfg = RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
