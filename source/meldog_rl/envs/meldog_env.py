@@ -49,6 +49,9 @@ class MeldogEnv(DirectRLEnv):
         # Command buffer [vx, vy, yaw_rate]
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
+        # Command resampling tracking
+        self._command_time_left = torch.zeros(self.num_envs, device=self.device)
+
         # Reward logging
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -136,6 +139,12 @@ class MeldogEnv(DirectRLEnv):
         self._processed_actions = (
             self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
         )
+
+        # Command resampling during episode
+        self._command_time_left -= self.step_dt
+        resample_envs = self._command_time_left <= 0
+        if resample_envs.any():
+            self._resample_commands(resample_envs.nonzero(as_tuple=False).flatten())
 
         # Debug visualization
         if self.cfg.debug_vis:
@@ -325,6 +334,28 @@ class MeldogEnv(DirectRLEnv):
 
         return died, time_out
 
+    def _resample_commands(self, env_ids: torch.Tensor):
+        """Resample velocity commands for specified environments.
+
+        Args:
+            env_ids: Environment indices to resample commands for.
+        """
+        num_envs = len(env_ids)
+
+        # Determine which environments should stand still
+        num_standing = int(num_envs * self.cfg.standing_env_fraction)
+        standing_mask = torch.rand(num_envs, device=self.device) < self.cfg.standing_env_fraction
+
+        # Sample random commands in [-1, 1] for all 3 axes
+        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+
+        # Set standing environments to zero velocity
+        if standing_mask.any():
+            self._commands[env_ids[standing_mask]] = 0.0
+
+        # Reset command timer for resampled environments
+        self._command_time_left[env_ids] = self.cfg.command_resample_time_s
+
     def _reset_idx(self, env_ids: torch.Tensor | None):
         """Reset environments."""
         if env_ids is None or len(env_ids) == self.num_envs:
@@ -344,9 +375,7 @@ class MeldogEnv(DirectRLEnv):
         self._previous_actions[env_ids] = 0.0
 
         # Sample new commands
-        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(
-            -1.0, 1.0
-        )
+        self._resample_commands(env_ids)
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
