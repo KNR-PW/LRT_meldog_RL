@@ -1,6 +1,6 @@
-# MelDog — Perceptive Locomotion for Quadruped Robot
+# Meldog — RL Perception and Locomotion
 
-End-to-end framework for developing locomotion and perception policies for a quadruped robot using reinforcement learning and supervised learning.
+End-to-end framework for developing locomotion and perception policies for a quadruped robot Meldog using reinforcement learning and supervised learning.
 
 ## Demo
 
@@ -13,7 +13,7 @@ https://github.com/user-attachments/assets/db0f350c-b0d0-448f-b501-6933fc37bb87
 
 ## Overview
 
-This project provides a complete pipeline for training perceptive locomotion:
+This project provides a complete pipeline for training  locomotion and perception:
 
 1. **Train locomotion policy** — RL-based controller (PPO) that learns to walk on varied terrain
 2. **Collect perception dataset** — use trained locomotion to gather depth camera observations with ground truth height maps
@@ -23,14 +23,8 @@ This project provides a complete pipeline for training perceptive locomotion:
 
 Currently there are three functioning versions of the terrain perception network:
 
-| Model | Architecture | Key Feature | Parameters |
-|-------|-------------|-------------|------------|
-| **V1 Base** | 2-level U-Net | Gravity conditioning | ~130K |
-| **V2 Deep** | 3-level U-Net | Self-attention in bottleneck | ~590K |
-| **V3 Temporal** | 3-level U-Net + ConvGRU | Temporal memory across frames | ~850K |
-
 **Input:** Sparse height map (40×40) from 4 depth cameras + gravity vector from IMU  
-**Output:** Dense height map (40×40) with filled occlusions
+**Output:** Reconstructed height map (40×40) 
 
 ### V1 — Base Model
 Standard U-Net encoder-decoder with skip connections. Gravity vector is embedded via MLP and injected at the bottleneck.
@@ -42,69 +36,41 @@ Deeper encoder (additional level down to 5×5) with self-attention mechanism. La
 Adds ConvGRU layers that maintain hidden state across frames. The network builds a "belief state" about terrain — remembering previously observed regions that are now occluded.
 
 ## Project Structure
-This project uses Isaac Lab direct workflow project template. My work mostly consists of these files:
-```
-├── scripts/
-│   ├── train_locomotion.py
-│   ├── play_locomotion.py
-│   ├── play_locomotion_keyboard.py
-│   └── evaluate_locomotion.py
-├── source/
-│   └── meldog_simple_locomotion_policy/
-│       ├── meldog_simple_locomotion_policy_env.py
-│       └── meldog_simple_locomotion_policy_env_cfg.py
-└── README.md
-```
+
+Built on Isaac Lab's direct workflow template. Here's where key components live:
+
+### Training Pipelines
+- **`scripts/locomotion/`** — RL training, evaluation, and testing for locomotion policies
+- **`scripts/perception/`** — Supervised learning pipeline for terrain perception (training, evaluation, dataset collection)
+
+### Robot Description
+- **`source/meldog_rl/envs/meldog_env.py`** — Main environment implementation defining robot physics, observations, rewards
+- **`source/meldog_rl/envs/configs/`** — Environment configurations organized by use case:
+  - `simulation/` — Training configs (flat/rough terrain)
+  - `sim2real/` — Real-world deployment configs with domain randomization
+  - `dataset/` — Dataset collection configs with camera observations enabled
+
+### Neural Network Models
+- **`source/meldog_rl/models/perception/`** — Perception architectures (V1 base, V2 attention, V3 temporal)
+- **`source/meldog_rl/agents/`** — Locomotion policy configuration (PPO hyperparameters, network architecture)
+
+### Data
+- **`logs/locomotion/`** — RL training checkpoints and TensorBoard logs
+- **`logs/perception/`** — Perception model checkpoints and training metrics
+- **`datasets/`** — Collected depth camera observations with ground truth height maps
+
+### Supporting Code
+- **`source/meldog_rl/datasets/`** — PyTorch dataset classes for perception training
+- **`source/meldog_rl/utils/`** — Shared utilities and naming conventions
 
 ## Installation
 
 This project is built on the [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) template.
 
-1. Install Isaac Lab following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html)
-
-2. Activate the conda environment:
-   ```bash
-   conda activate isaaclab
-   ```
-
-3. Clone this repository and install in editable mode:
-   ```bash
-   ./isaaclab.sh -p -m pip install -e source/meldog_simple_locomotion_policy
-   ```
-
-4. Verify installation:
-   ```bash
-   ./isaaclab.sh -p scripts/list_envs.py
-   ```
+TBD
 
 ## Usage
-
-All scripts are launched via `./isaaclab.sh -p` from the Isaac Lab directory with the `isaaclab` conda environment active.
-
-### Train locomotion policy
-```bash
-./isaaclab.sh -p scripts/rsl_rl/train.py --task=MelDog-Locomotion-v0
-```
-
-### Run trained policy
-```bash
-./isaaclab.sh -p scripts/play_locomotion.py --checkpoint=path/to/model.pt
-```
-
-### Evaluate with keyboard control
-```bash
-./isaaclab.sh -p scripts/play_locomotion_keyboard.py
-```
-
-### Collect perception dataset
-```bash
-./isaaclab.sh -p scripts/collect_perception_data.py --checkpoint=path/to/locomotion.pt --output=dataset/
-```
-
-### Train perception model
-```bash
-python train_perception.py --data=dataset/ --model=v3_temporal
-```
+TBD
 
 ## Acknowledgments
 
