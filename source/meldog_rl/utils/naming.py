@@ -18,6 +18,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from meldog_rl.utils.git_utils import get_git_suffix
+
 
 # Type alias for prefixes
 OutputPrefix = Literal["LM", "LE", "PM", "PE", "PD"]
@@ -61,7 +63,12 @@ def make_output_name(
         timestamp = get_timestamp()
     
     parts = [prefix] + list(details) + [timestamp]
-    return "_".join(parts)
+    base_name = "_".join(parts)
+    
+    git_suffix = get_git_suffix()
+    if git_suffix:
+        return f"{base_name}_{git_suffix}"
+    return base_name
 
 
 def make_locomotion_log_dir(
@@ -178,13 +185,33 @@ def parse_output_name(name: str) -> dict:
     """
     parts = name.split("_")
     
-    # Timestamp is last two parts joined
-    timestamp = "_".join(parts[-2:])
+    # Check if the last part is a git suffix (e.g., a1b2c3d or a1b2c3d-dirty)
+    # A standard timestamp is YYYY-MM-DD_HH-MM-SS (2 parts)
+    # If the last part has no hyphens or only one hyphen but is short, it might be git.
+    # But a cleaner way: if we assume standard format, the timestamp starts with 202...
+    
+    # Let's find the timestamp part which usually starts with '20' (year)
+    timestamp_idx = -1
+    for i, p in enumerate(parts):
+        if p.startswith("20") and len(p.split("-")) == 3:
+            timestamp_idx = i
+            break
+            
+    if timestamp_idx != -1 and timestamp_idx + 1 < len(parts):
+        timestamp = f"{parts[timestamp_idx]}_{parts[timestamp_idx+1]}"
+        details = parts[1:timestamp_idx]
+        git_suffix = "_".join(parts[timestamp_idx+2:])
+    else:
+        # Fallback to old behavior
+        timestamp = "_".join(parts[-2:])
+        details = parts[1:-2]
+        git_suffix = ""
     
     return {
         "prefix": parts[0],
-        "details": parts[1:-2],
+        "details": details,
         "timestamp": timestamp,
+        "git_suffix": git_suffix,
     }
 
 
