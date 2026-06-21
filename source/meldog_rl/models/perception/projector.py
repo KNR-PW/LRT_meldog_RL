@@ -151,7 +151,7 @@ class DepthProjector(nn.Module):
         for i, name in enumerate(cam_names):
             depth = depth_stack[:, i, :, :]
             
-            mask = (depth > 0.1) & (depth < 3.0) 
+            mask = (depth > 0.25) & (depth < 3.0)  # 0.25m filters robot's own legs
             if not mask.any():
                 continue
 
