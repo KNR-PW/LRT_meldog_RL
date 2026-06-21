@@ -98,3 +98,39 @@ python scripts/perception/evaluate_slam.py \
     --locomotion_checkpoint logs/locomotion/LM_rough_sim_.../model_5000.pt \
     --mode sparse_only
 ```
+
+---
+
+## 5. Releasing Models
+
+Because log directories generate hundreds of checkpoints (`model_50.pt`, `model_100.pt`, etc.), you should "release" your best models into a clean folder before committing them to Git or deploying them.
+
+Our models are tiny (<5MB), so we track them directly in standard Git using the `release_model.py` tool. This script automatically finds the best `.pt` weights, extracts your `env.yaml` and `agent.yaml`, grabs the exact Git status (`git_info.yaml`), and packages them cleanly.
+
+### Usage Example
+```bash
+python scripts/release_model.py \
+    --domain locomotion \
+    --log-dir logs/locomotion/LM_rough_sim_2026-02-06_14-23-29 \
+    --tag v1.0-rough \
+    --message "Initial stable walking policy on rough terrain."
+```
+
+**Output Structure:**
+```text
+releases/
+└── locomotion/
+    └── v1.0-rough/
+        ├── agent.yaml
+        ├── env.yaml
+        ├── git_info.yaml
+        ├── README.md
+        └── model.pt
+```
+
+After releasing, you can easily evaluate your clean model:
+```bash
+python scripts/locomotion/play_locomotion.py \
+    --task Meldog-RL-Locomotion-Rough-Sim-v0 \
+    --checkpoint releases/locomotion/v1.0-rough/model.pt
+```
