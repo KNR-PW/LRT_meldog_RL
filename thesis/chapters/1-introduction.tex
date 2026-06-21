@@ -1,0 +1,201 @@
+\newpage
+\section{Introduction (PPMGR)}
+
+\subsection{Background}
+This work is carried out as part of the Legged Robotics Team within the Students’ Robotic Association “KNR.” For nearly a decade, our main focus has been on humanoid robots, resulting in the development of the "Melson" \cite{szumowski2014} \cite{mikolajczyk2019} and "Melman" \cite{mazurkiewicz2024} projects. 
+
+\begin{figure}[!h]
+	\centering \includegraphics[width=0.4\linewidth]{images/KNR-humanoids.png}
+	\caption{Humanoid robots developed by KNR Legged Robotics Team}
+	\label{fig:knr-humanoids}
+\end{figure}
+
+However, in response to recent advances in quadruped robotics, our latest initiative involves the creation of a four-legged walking robot named "Meldog". This project aims to improve the qualifications of our members both in designing and programming quadrupeds. We leverage rapid prototyping through 3D printing to quickly adapt our design to results from various experiments. Using off-the-shelf components and embracing this method of manufacturing ensures a low barrier of entry for future students with hopes of creating a platform that will be developed for years to come.
+
+\begin{figure}[!h]
+	\centering \includegraphics[width=1\linewidth]{images/Meldog Top Front Side.png}
+	\caption{CAD model of quadruped robot "Meldog"}
+	\label{fig:meldog-corner-view}
+\end{figure}
+
+As part of this project, several diploma theses have been conducted, including studies on 3D printed gear strength \cite{sufin2023}, actuator design \cite{frydrych2022}, and the development of a limb prototype \cite{frydrych2023}. Currently, after thoroughly testing all components previously developed \cite{krajewski2023}, the final construction of "Meldog" is being finalized. The next stage of the project focuses on the software development necessary for the operation of our quadruped robot. Parallel to that, a digital twin is being created, enabling simulation work as well as potential usage in reinforcement learning solutions in the future.
+
+
+\subsection{Motivation}
+Quadruped robots are gaining traction both in academia \cite{mitcheetah3} \cite{anybotics2025}
+and commercial settings \cite{unitree2024} \cite{bostondynamics2025} due to their superior mobility and ability to traverse uneven terrain. Although they consume more energy than traditional wheeled robots, they are significantly better suited to environments designed for humans. Obstacles such as stairs or curbs, which are often impassable for wheeled robots, can be navigated effectively by legged robots. Similarly, quadrupeds can operate in rough terrains filled with rocks or other irregular obstacles, where human presence could pose a safety risk.
+
+A key aspect of enabling such capabilities is developing robust perception of the robot’s surroundings. Humans and animals effortlessly interpret terrain. Often a single glance is sufficient to understand its geometry, recognize obstacles, and assess their spatial relationships. Robots, however, continue to struggle with this task due to sensor noise, reflections, occlusions, and motion-induced distortions. Unlike machines, animals rely on visual cues or even tactile feedback from their feet to perceive their environment.
+
+Accurate environment mapping is essential for walking robots as it forms the foundation for both locomotion and navigation. Without a reliable map, a robot cannot ensure secure foot placement or effective obstacle avoidance. Errors in terrain interpretation can result in unstable gaits, collisions, or even falls, particularly in cluttered or rough environments. Therefore, developing a robust environmental perception system is vital for the safe and efficient operation of legged robots. This system must not only capture the geometry of the surroundings accurately but also continuously update it in real time as the robot moves and interacts with the environment.
+
+
+\subsection{Literature Review}
+
+\subsubsection{Distinction between Natural, rough terrain, and regular, city-like terrain}
+
+To truly understand the problem, it's important to define and distinguish two types of environments encountered in the deployment of walking robots. Properly identifying their different properties and challenges is crucial for designing perception systems. In literature, two terrain types have been identified:
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[height=0.3\linewidth]{images/Structured Environment.png}
+    \includegraphics[height=0.3\linewidth]{images/Unstructured Environment.png}
+    \caption{Comparison of structured and unstructured environments \cite{Robotic_Hike_with_ANYmal} \cite{Neural_Scene_Representation_for_Locomotion_on_Structured_Terrain}}
+    \label{fig:environment-types}
+\end{figure}
+
+\textbf{Structured} environment includes terrain transformed by humans for their needs and ease of use, resulting in mostly regularly shaped terrain. Boxes, walls, stairs and poles are all features found in buildings, cities and industrial scenarios. Solutions described in \cite{Neural_Scene_Representation_for_Locomotion_on_Structured_Terrain} \cite{ANYmal_parkour:_Learning_agile_navigation_for_quadrupedal_robots} leverage those characteristics to reconstruct a robot-centric elevation map from partially occluded and noisy depth measurements.
+
+\textbf{Unstructured} environment is defined by natural terrain with rough, uneven surfaces. In that case, encountered obstacles include trees, rocks, hills and valleys. Additional challenges in form of snow and tall grass can further complicate effective perception. Solutions proposed in \cite{Reconstructing_Occluded_Elevation_Information_in_Terrain_Maps_With_Self-Supervised_Learning} \cite{Locomotion_Policy_Guided_Traversability_Learning_using_Volumetric_Representations_of_Complex_Environments} focus on tackling such environments with an additional traversability parameter being introduced.
+
+\subsubsection{Fundamental Sensor Division for Legged Locomotion}
+Robotic perception for legged locomotion relies on two fundamental sensor categories: proprioceptive and exteroceptive observations. Proprioceptive observations measure the robot's internal state, including joint positions, velocities, body orientation from IMUs, and foot contact forces. These measurements provide crucial real-time feedback for maintaining stability and executing controlled gaits. However, they are prone to noise from mechanical vibrations, calibration inaccuracies, and terrain-induced disturbances like foot slippage or compliant terrain surfaces.
+The other type, exteroceptive observations, capture environmental data through sensors such as lidar, cameras, or depth sensors, enabling terrain mapping and obstacle detection. While essential for navigation, exteroceptive data suffers from occlusions, reflections, and motion artifacts, which complicate accurate terrain reconstruction.
+
+\subsubsection{Sensors Configuration}
+\label{sssec:sensor-configuration}
+To obtain depth information about robot's surroundings different sensors and their placement can be identified. Currently, for perception-related tasks LIDAR sensors and stereo cameras are most commonly used. Four common sensor configurations have been identified:
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[trim=500pt 250pt 50pt 100pt, clip, height=0.2\linewidth]{images/Anymal Dome Lidar.png}
+    \includegraphics[trim=100pt 400pt 400pt 100pt, clip, height=0.2\linewidth]{images/Spot 360 LiDAR.png}
+    \includegraphics[trim=0pt 0pt 0pt 0pt, clip, height=0.2\linewidth]{images/Unitree Dome Lidar.png}
+    \includegraphics[trim=00pt 0pt 420pt 0pt, clip, height=0.2\linewidth]{images/Spot Stereo Camera.png}
+    \caption{Examples of real world quadruped sensor configuration:
+    A. "Anymal" dome LIDAR \cite{anybotics2025},
+    B. "Spot" 360$^\circ$ LIDAR \cite{bostondynamics2025},
+    C. Unitree dome LIDAR \cite{unitree2024},
+    D. "Spot" Stereo camera \cite{bostondynamics2025}}
+    \label{fig:sensors-examples}
+\end{figure}
+
+\textbf{A. Front and back dome LIDARs}
+This configuration used in some configurations of ETH "Anymal" robot gives excellent coverage of front and back directions. Their placement ensures no leg obstructions, however, due to their placement in a collision-prone position, some additional protection is needed, consistently blocking parts of the sensor's field of view. This configuration gives a good compromise between environment mapping and creating a robot-centric locomotion map. The main drawback of this solution is the lack of side coverage, somewhat limiting robot's movement to forwards and backwards walking.
+
+\textbf{B. Top mounted 360$^\circ$ LIDAR}
+Configurations used mostly with high-range LIDARs used to create environment maps. Usually, this kind of setup is used as an additional task-specific payload and isn't part of the robot's locomotion-oriented perception system. It practically offers no coverage of the robot's close surroundings and also requires additional protection, blocking parts of the sensor's field of view.
+
+\textbf{C. Bottom mounted dome LIDAR}
+Solution used in Unitree "Go2" robot gives excellent front view and is the only discussed solution giving access to depth measurements directly below the robot. However, with just a single sensor mounted this way, many leg obstructions occur in both side views and back direction. Being a custom built sensor for this usecase, it already includes collision protection which doesn't obstruct its field of view.
+
+\textbf{D. Four-Sided RGB-D camera setup}
+Contrary to previously discussed solutions, this implementation bases on RGB-D cameras, more precisely stereo cameras. These sensors have much narrower field of view, but also have much smaller dimensions allowing them to be integrated into robots body. This solves problems of collision and allows usage of multiple sensors to improve surroundings coverage. Those RGB-D cameras are mounted on each side of the robot: front, back, left and right ensuring omnidirectional coverage. By adjusting their inclination, a balance between close and distant mapping can be adjusted. This solution doesn't cover the area directly below the robot and has some blind spots at each of the robot's corners. Additionally, the number of sensors can be increased to ensure better coverage at the front of the robot.
+
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=1\linewidth]{images/Quadruped Sensor FOV.png}
+    \caption{Different quadruped sensor configuration and their approximated fields of view. Sensors have been highlighted in blue while their coverage is shown in red}
+    \label{fig:sensor-fov}
+\end{figure}
+
+
+\subsubsection{Traditional Approaches and Their Limitations}
+Traditional approaches to terrain perception, such as Elevation Mapping and Voxblox, have laid the groundwork for environment representation. Elevation Mapping \cite{Probabilistic_Terrain_Mapping_for_Mobile_Robots_With_Uncertain_Localization} constructs 2.5D heightmaps from exteroceptive data, while Voxblox \cite{Oleynikova_2017} builds volumetric maps using truncated signed distance fields (TSDFs). These methods excel in structured environments but struggle with real-world challenges like sensor noise, dynamic obstacles, and incomplete data. For instance, sparse LIDAR scans or IMU drift can significantly degrade map accuracy, leading to unstable locomotion. The inherent limitations of these geometric-based methods have spurred the development of more robust, learning-based solutions.
+
+Creating a complete perception solution must take into consideration both proprioceptive and exteroceptive observations. Ensuring robustness means both types of noise should be accounted for, as in the real world no perfect observations exist. Such a solution has been proposed in \cite{Learning_Robust_Perception-Based_Controller_for_Quadruped_Robot}, but this implementation combines both perception and the locomotion controller into one module. A more adaptive solution would divide these two to ensure modularity.
+
+
+
+\subsubsection{Advances in Learning-Based Perception, State-of-the-Art Solutions}
+Recent advancements leverage machine learning to address these challenges. For example, \cite{Reconstructing_Occluded_Elevation_Information_in_Terrain_Maps_With_Self-Supervised_Learning} employs self-supervised networks to infer missing terrain data caused by occlusions, enhancing the reliability of exteroceptive perception. Similarly, \cite{Neural_Scene_Representation_for_Locomotion_on_Structured_Terrain} replaces traditional geometric maps with learned latent representations, enabling better generalization across varied terrains without explicit reconstruction. Another notable contribution, \cite{Locomotion_Policy_Guided_Traversability_Learning_using_Volumetric_Representations_of_Complex_Environments}, integrates volumetric environment representations with reinforcement learning to predict traversability. However, this approach remains sensitive to proprioceptive noise during real-world deployment.
+
+Model-based methods, such as those presented in \cite{grandia2022perceptivelocomotionnonlinearmodel} optimize locomotion trajectories using real-time terrain data. While effective, these methods depend heavily on accurate state estimation, which is often compromised by sensor noise. In contrast, \cite{Learning_Robust_Perception-Based_Controller_for_Quadruped_Robot} introduces a novel teacher-student architecture trained in NVIDIA Isaac Gym. Here, a teacher policy, trained on noise-free proprioceptive and exteroceptive data, guides a student policy to replicate its actions under simulated noisy conditions. This approach simultaneously addresses noise in both observation types: recurrent networks filter temporal inconsistencies in proprioception (e.g., slippage), while encoder-decoder networks reconstruct clean exteroceptive inputs (e.g., elevation maps). By incorporating domain randomization—variations in terrain, friction, and sensor parameters—the student policy achieves a level of robustness unattainable by traditional methods.
+
+%\subsubsection{Dynamic/Static obstacles?}
+
+\subsubsection{End-to-End solutions vs modularity}
+End-to-end solutions, which integrate perception and locomotion into a single, tightly-coupled policy, offer highly optimized and reactive behaviors. They achieve this by directly mapping raw sensor inputs to motor commands, sidestepping intermediate representations like elevation maps. While powerful, these systems often operate as "black boxes," making them challenging to debug, interpret, or adapt to new tasks without extensive retraining. In contrast, a modular design separates perception, planning, and control into distinct components, fostering greater flexibility and interpretability. Each module, such as a terrain mapping system, can be developed, tested, and upgraded independently.
+
+A key advantage of this modularity is the reusability of the perception module across various functionalities. The same perception output can feed into navigation algorithms, path planning, and obstacle avoidance. Furthermore, a robust perception module can serve as input for multiple locomotion algorithms, like classical Model Predictive Control (MPC), allowing different control strategies to leverage the same environmental understanding. While modularity can introduce bottlenecks at module interfaces, it ultimately offers a more transparent and adaptable framework, which is often preferred for development, diagnostics, and enhancing system reconfigurability and efficiency.
+
+\subsection{Solution proposal}
+
+\subsubsection{Identified challenges}
+
+Developing a robust perception system for "Meldog" faces several significant challenges. A primary concern is occlusions and incomplete sensor coverage. Even with a four-sided camera setup, certain areas remain out of view. Critically, the region directly beneath the robot, where foot placement decisions are made, often constitutes a blind spot. This means the system must infer crucial terrain information in these areas from surrounding measurements, which introduces uncertainty. Additionally, environmental features like tall grass, rocks, or other obstacles can further obscure important parts of the terrain, leading to incomplete maps and potential navigation hazards.
+
+Beyond coverage, sensor noise and the robot's dynamic movements significantly complicate perception. Depth cameras, while providing essential spatial data, are inherently susceptible to various forms of noise, including random variations, systematic errors from calibration, and interference from reflective surfaces. When combined with the robot's motion, these issues are exacerbated. Rapid movements can cause motion blur in camera feeds, while constant shifts in the robot's viewpoint make it difficult to integrate sequential sensor readings into a coherent, stable map. Furthermore, mechanical vibrations from the robot's actuators or impacts with the terrain introduce high-frequency noise into sensor data. These challenges are compounded by the inherent difficulty of accurate odometry in walking robots. Unlike wheeled robots, legged robots experience foot slippage and interaction with compliant terrain, which leads to accumulated errors in their estimated position and orientation. Such odometry errors directly degrade the accuracy of the constructed environmental map, making robust sensor fusion techniques essential.
+
+Finally, creating a unified perception solution that effectively handles both structured and unstructured terrain presents a considerable challenge. Structured environments, such as buildings or urban areas, typically feature distinct geometric shapes like stairs, curbs, and planar surfaces, which are often easier for traditional mapping techniques to process. In contrast, unstructured environments, like natural landscapes with uneven ground, rocks, or dense vegetation, exhibit highly irregular and complex geometries. For these terrains, the perception system must not only accurately map the geometry but also assess "traversability" – determining which areas are safe and stable for foot placement. A single system must be versatile enough to interpret these vastly different characteristics in real-time, providing the necessary information for safe and efficient locomotion across a wide range of operational conditions.
+
+
+\subsubsection{Relation to robots Software}
+It's important to lay out the perception system's relation to other modules in high-level quadruped software architecture. It relays on robot exteroceptive sensors, to create a robot centric elevation map which can be exploited by further modules. Planned architecture is visualized in Figure \ref{fig:high-level-architecture}
+
+\begin{figure}[!h]
+    \centering
+    \includegraphics[width=1\linewidth]{images/High Level Meldog.drawio.png}
+    \caption{Meldog's High level software architecture: in yellow - features currently being worked on, grayed out - planned future models}
+    \label{fig:high-level-architecture}
+\end{figure}
+
+It's important to mention, that locomotion module can work without perception module, however its functionality would be greatly limited. Without being aware of its surroundings, walking robot wouldn't be able to dynamically adjust its step hight or plan secure foot placements. In that case its functionality would be confined to traversing flat surfaces, and retroactively correcting any missteps or slips. The environment map would also be crucial for a future navigation module in tasks such as obstacle avoidance and path planning.
+
+\subsubsection{Hardware implementation}
+Out of all configurations considered in Section \ref{sssec:sensor-configuration}, a four-sided RGB-D camera setup was selected for "Meldog". While top-mounted 360° LIDARs excel in large-scale environment mapping, their lack of close-range coverage and high cost made them unsuitable for locomotion-centric perception. Similarly, dome LIDAR configurations (e.g., front-back or bottom-mounted) were dismissed due to their susceptibility to leg obstructions, collision risks, and the need for custom protective housings that further occlude the field of view.
+
+The chosen Intel RealSense D435i depth cameras offer a compelling compromise between performance, size, and cost. Their compact form factor allows flexible mounting directly on the robot’s body, while their active stereo infrared system ensures reliable depth perception in varied lighting conditions. A detailed comparison of the D435i’s key specifications against alternative sensors is provided in 
+Table~\ref{tab:sensor-specs}.
+
+
+\begin{table}[!h]
+\centering
+\caption{Comparison of selected perception sensors}
+\label{tab:sensor-specs}
+\renewcommand\arraystretch{1.5}
+\small
+\setlength{\extrarowheight}{1pt}
+\begin{tabularx}{\linewidth}{|
+  >{\centering\arraybackslash}m{2.2cm}|
+  >{\centering\arraybackslash}m{2.2cm}|
+  >{\centering\arraybackslash}m{2.1cm}|
+  >{\centering\arraybackslash}m{2.1cm}|
+  >{\centering\arraybackslash}m{2.1cm}|
+  >{\centering\arraybackslash}m{2.1cm}|}
+\hline
+\textbf{Specification} & \textbf{D435i} & \textbf{D455i} & \textbf{SICK multiScan136} & \textbf{"Go2" L1 LiDAR} & \textbf{RoboSense RS-BPearl} \\
+\hline
+Range & 0.3--3\,m & 0.6--6\,m & 0.05--60\,m & 0.05--30\,m & 0.1--200\,m \\
+\hline
+FOV & $87^{\circ} \times 58^{\circ}$ & $87^{\circ} \times 58^{\circ}$ & $360^{\circ} \times 65^{\circ}$ & $360^{\circ} \times 90^{\circ}$ dome & $360^{\circ} \times 90^{\circ}$ dome \\
+\hline
+Depth Resolution & up to 1280×720 & up to 1280×720 & 0.125$^{\circ}$ horizontal, 2.5$^{\circ}$ vertical & 0.183$^{\circ}$ horizontal, 0.5$^{\circ}$ vertical & 0.1$^{\circ}$ horizontal, 2.81$^{\circ}$ vertical \\
+\hline
+Accuracy & <2\% at 2\,m & <2\% at 4\,m & No & ±2.0\,cm & ±3.0 \\
+\hline
+Refresh rate & up to 90\,Hz & up to 90\,Hz & up to 20\,Hz & up to 11\,Hz & up to 20\,Hz \\
+\hline
+Open Source Software & Yes & Yes & No & No & No \\
+\hline
+Cable Type & USB 3.0 & USB 3.0 & Ethernet + power & USB 3.0 & Ethernet + power \\
+\hline
+Approximate Price & 400 € & 400 € & 3600 € & 250 € & 3700 € \\
+\hline
+\end{tabularx}
+\end{table}
+
+
+
+The primary advantage of this configuration lies in its modularity—four cameras provide full coverage of the robot’s immediate surroundings with minimal blind spots, which is critical for dynamic foothold planning. Additionally, the built-in IMU assists in compensating for motion-induced distortions in depth data, though this requires careful calibration with the robot’s proprioceptive sensors. Potential limitations, such as reduced performance in direct sunlight or near reflective surfaces, will be addressed through software-based filtering and fusion with other perception modalities.
+
+This setup not only meets Meldog’s immediate needs but also allows for future upgrades, such as integrating additional cameras or transitioning to newer models like the D455i for extended range, without requiring significant mechanical redesign. The selected architecture emphasizes robustness in real-world conditions while maintaining compatibility with the robot’s rapid prototyping philosophy.
+
+\subsubsection{Proposed Perception system design}
+
+The proposed solution aims to develop a robust, robot-centric perception system by first generating an incomplete elevation map using a voxelized representation derived from the robot's onboard depth sensors. This raw data, which is often noisy and suffers from occlusions, is then processed by a neural network. The network employs an encoder-decoder architecture, drawing significant inspiration from the works of \cite{Neural_Scene_Representation_for_Locomotion_on_Structured_Terrain}. Its design enables it to learn geometric priors and effectively infer missing information, thereby constructing a complete and accurate terrain map from the initial, fragmented observations.
+
+A key feature of this architecture is its temporal dimension, which enhances the system's ability to create a consistent environmental understanding. The network integrates both the current depth measurement and its own previously generated output as inputs. This temporal feedback mechanism allows the system to leverage spatio-temporal consistency, continuously refining the reconstruction over time and retaining information about objects that might have moved into blind spots. To optimize for real-time performance and provide appropriate levels of detail for locomotion, the system will also implement a multi-resolution mapping approach. This will involve generating a denser representation of the terrain in the immediate vicinity of the robot for precise foot placement, while maintaining a sparser, more computationally efficient map for areas farther away, as proposed in \cite{ANYmal_parkour:_Learning_agile_navigation_for_quadrupedal_robots}.
+
+In addition to generating a complete elevation map, the proposed solution aims to incorporate traversability estimation, drawing inspiration from advanced research in quadruped robotics. This will involve leveraging datasets generated in \cite{Locomotion_Policy_Guided_Traversability_Learning_using_Volumetric_Representations_of_Complex_Environments}, which contain varied terrain types and associated traversability labels. By training on such datasets, the neural network can learn to assess not just the geometry of the surroundings, but also the "walkability" or safety of different areas, introducing an additional traversability parameter to the robot-centric map. This goes beyond simple height data, allowing the robot to make more informed decisions about foot placement and path planning, especially in challenging environments.
+
+Furthermore, to overcome the persistent challenge of occlusions in unstructured environments, the system will integrate techniques for occlusion filling. Similar to methods proposed in \cite{Reconstructing_Occluded_Elevation_Information_in_Terrain_Maps_With_Self-Supervised_Learning}, which employ self-supervised learning to reconstruct missing elevation information, the network will be trained to infer and fill in gaps in the depth data caused by environmental obstacles. This approach ensures a more continuous and reliable understanding of the terrain, even when direct sensor measurements are unavailable. This comprehensive perception system will provide "Meldog" with a robust understanding of its immediate surroundings, enabling safer and more agile locomotion across diverse terrains.
+
+\subsubsection{Proposed experiments}
+
+The validation of the proposed perception system will begin with extensive simulation-based trials. Locomotion policies will be trained primarily in NVIDIA Isaac Sim, leveraging its high-fidelity physics and sensor rendering. These same policies will then be tested in Gazebo to evaluate their robustness and adaptability to a different physics engine. This comparative analysis will help quantify the impact of simulation fidelity on performance and identify key challenges for transferring the system to the real world, using metrics like traversal speed and stability on varied terrains.
+
+The second stage will focus on sim-to-real transfer, where policies validated in simulation are deployed on the physical "Meldog" robot. This phase will assess how effectively the learned behaviors translate to real-world conditions. The robot will navigate controlled environments designed to replicate simulated challenges, such as obstacles and uneven surfaces. Performance will be measured by the accuracy of the generated terrain map, the success rate of foot placements, and the overall stability of the robot's gait, allowing us to refine the training process to close the reality gap.
+
+Finally, to benchmark our learning-based solution, it will be compared against established, traditional SLAM methods. This evaluation will use both simulated and real-world datasets to assess each system's ability to handle sensor noise, occlusions, and dynamic movement. The goal is to quantify the improvements offered by our approach in map completeness, accuracy, and real-time viability, demonstrating its enhanced capability for enabling agile and safe locomotion in complex environments.

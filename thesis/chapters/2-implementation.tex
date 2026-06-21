@@ -1,0 +1,497 @@
+\section{Implementation (PDMGR)}
+
+\subsection{High Level Workflow Overview}
+\label{ssec:workflow_overwiev}
+Devised solution requires additional preparation in order to leverage simulation driven development. First of all, a digital twin of quadruped Meldog is needed in order to accurately reflect real world conditions of walking robot perception system exploitation. To further enhance realism, a simulation only locomotion policy will be developed to faithfully reflect the way sensors mounted on robots body move, and how limb movement introduces occlusions. This locomotion policy combined with procedurally generated terrain will be used to collect a dataset representing various sensor measurements during quadruped robots exploitation. Finally, various types of perception models will be developed and trained using this data.
+
+To facilitate the development of both the locomotion policy and the perception system's training dataset, NVIDIA Isaac Sim was selected as the primary simulation environment. This choice was motivated by several key technical requirements. First, Isaac Sim provides high-fidelity physics simulation based on NVIDIA PhysX, accurately modeling contact dynamics and terrain interactions critical for training robust locomotion policies \cite{isaacgym}. Second, its GPU-accelerated rendering pipeline enables photorealistic sensor simulation, particularly for depth cameras, accurately reproducing sensor noise, motion blur, and environmental artifacts that the physical Intel RealSense D435i cameras will encounter during real-world deployment. Third, Isaac Lab's built-in reinforcement learning infrastructure, optimized for massively parallel environment instances, allows for efficient training of locomotion policies across diverse procedurally generated terrains within reasonable computational timeframes \cite{learningtowalk}.
+
+Alternative simulation platforms, such as Gazebo, while valuable for validation and cross simulation testing, lack the GPU acceleration and sensor fidelity necessary for generating the large scale, high quality datasets required to train perception networks capable of handling real-world sensor noise and occlusions. Furthermore, Isaac Sim's integration with the broader NVIDIA ecosystem facilitates seamless workflows from policy training through dataset generation to neural network development, while also ensuring compatibility with NVIDIA Jetson embedded platforms planned for onboard deployment on "Meldog", aligning with the project's simulation driven development approach and enabling efficient iteration cycles essential for achieving robust sim-to-real transfer.
+
+\subsection{Digital Twin}
+Devised digital twin has been largely based on URDF based first iteration developed by KNR's members \cite{sufin2024}. Since its conception, Meldog's mechanical design have been completed with second iteration of actuator and robotic limb, as well as main body housing multi computer architecture and electronics. With this landmark, final robot geometry has been made available alongside CAD model based inertia properties, joint limits, visual and collision models. Table~\ref{tab:quadruped-comparison} showcases how Meldog's mechanical properties compared to other quadruped robots.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of quadruped robot physical properties (Sorted by Mass)}
+\label{tab:quadruped-comparison}
+\begin{tabularx}{\textwidth}{|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|}
+\hline
+\textbf{Robot} & \textbf{Standing Dimensions (L$\times$W$\times$H)} & \textbf{Limb Length (Link)} & \textbf{Robot Mass} & \textbf{Actuator Torque (max)} \\
+\hline
+Unitree Go2 & 70$\times$31$\times$40\,cm & 21\,cm & 15\,kg & 45\,Nm \\
+\hline
+Meldog & 70$\times$45$\times$60\,cm & 25\,cm & 25\,kg & 35\,Nm \\
+\hline
+Spot & 110$\times$50$\times$84\,cm & 38\,cm & 32.5\,kg & 112\,Nm \\
+\hline
+ANYmal C & 93$\times$53$\times$89\,cm & 30\,cm & 50\,kg & 85\,Nm \\
+\hline
+Unitree B2 & 110$\times$46$\times$65\,cm & 40\,cm & 60\,kg & 360\,Nm \\
+\hline
+\end{tabularx}
+\end{table}
+
+
+\subsubsection{Sensor Placement}
+Following the sensor configuration analysis presented in Section~\ref{sssec:sensor-configuration}, a four sided Intel RealSense D435i depth camera setup was implemented on Meldog. All sensors have been tilted 30$^\circ$ downwards being a compromise between close coverage for better robocentric mapping and outward facing for obstacle avoidance. Sensor FOV has been visualized on Figure~\ref{fig:meldog-sensor-fov}. Its important to know that their position and orientation has been chosen arbitrarily, and some additional experiments with their position could further enhance perception systems performance.
+
+\begin{figure}[H]
+    \centering
+    \begin{minipage}[c]{0.37\linewidth} 
+        \centering
+        \includegraphics[width=\linewidth]{images/Sensor FOV iso.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.24\linewidth}
+        \centering
+        \includegraphics[width=0.95\linewidth]{images/Sensor FOV top.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.37\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{images/Sensor FOV front.png}
+        \\[0.5em] 
+        \includegraphics[width=\linewidth]{images/Sensor FOV side.png}
+    \end{minipage}
+    
+    \caption{Visualization of sensor field of view on Meldog: Isometric view (left), Top-down view (center), and Front/Side views (right).}
+    \label{fig:meldog-sensor-fov}
+\end{figure}
+
+
+\subsubsection{Reality Gap in Observed Information}
+Its important to know that working with simulation allows access to privileged data. Of course most data can be obtained or estimated in real world, but it's important to distinguish additional information being used as ground truth for training from information obtainable during robot exploitation. Table~\ref{tab:sim-vs-real-data} clarifies this distinction and highlights potential problems of sim-to-real transition.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of simulation privileged data vs real-world measurements}
+\label{tab:sim-vs-real-data}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\textwidth}{|>{\centering\arraybackslash}m{2.5cm}|>{\centering\arraybackslash}m{2.5cm}|>{\centering\arraybackslash}X|}
+\hline
+\textbf{Measurement (Simulation)} & \textbf{Real World Counterpart} & \textbf{Comment} \\
+\hline
+Joint Position, Velocity, Torque & Encoder readings, motor current & Perfect measurements in simulation; real sensors subject to noise, calibration errors, and measurement delays \\
+\hline
+Body Orientation & IMU-based estimation & Ground truth 6-DOF pose in simulation; real IMU suffers from drift, noise, and requires sensor fusion \\
+\hline
+Feet Contact Sensor & Force/torque sensors or contact switches & Binary contact state perfectly known in simulation; real sensors have thresholds, noise, and may miss light contacts \\
+\hline
+RGB-D Measurement & Same sensor (D435i) & Simulation approximates sensor behavior but may not fully capture real-world artifacts like reflections, IR interference, or lighting variations \\
+\hline
+Terrain Shape & No direct equivalent & Ground truth elevation map from raycasting available only in simulation; crucial for supervised learning of perception models \\
+\hline
+Unwanted Contacts & No direct equivalent & All collision events perfectly detected in simulation; real robot in its current form is not aware of non-foot collisions \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{Locomotion Policy}
+As discussed in Section~\ref{ssec:workflow_overwiev}, the goal of this locomotion policy is accurate reproduction of real world robot terrain traversal. Therefore resulting controller is designated for simulation usage only, since it leverages privileged information for faster training and better results. Most notably, rough locomotion policy leverages terrain height data measured by overhead raycaster.
+
+\subsubsection{Terrain Type}
+Training a robust locomotion policy requires exposure to diverse terrain configurations. Isaac Lab provides a comprehensive terrain generation framework that enables procedural creation of various terrain types with configurable parameters. This allows for adjusting terrain difficulty for Meldog's size to ensure created terrain is actually physically traversable for this specific robot.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.24\linewidth]{images/Pyramid Sloped Obstacle.png}
+    \includegraphics[width=0.24\linewidth]{images/Stair Obstacle.png}
+    \includegraphics[width=0.24\linewidth]{images/Random Uniform Terrain.png}
+    \includegraphics[width=0.24\linewidth]{images/Random Grid Terrain.png}
+    \caption{Individual terrain generation patterns available in Isaac Lab framework: pyramid sloped terrain, stair obstacles, random uniform distribution, and rough terrain with irregular elevation changes.}
+    \label{fig:terrain-patterns}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/Rough Terrain.png}
+    \caption{Procedurally generated training environment combining multiple terrain features to create diverse scenarios for robust locomotion policy development.}
+    \label{fig:generated-terrain}
+\end{figure}
+
+\subsubsection{Reward Function}
+The locomotion policy was trained using reinforcement learning with a carefully tuned reward function. This reward function attempts to balance multiple competing objectives to produce stable, efficient, and natural looking gaits. The reward components, their weights, and purposes are detailed in Table~\ref{tab:reward-function}.
+
+\begin{table}[H]
+\centering
+\caption{Reward function components for locomotion policy training}
+\label{tab:reward-function}
+\begin{tabularx}{\textwidth}{|>{\centering\arraybackslash}p{3.5cm}|>{\centering\arraybackslash}p{1.8cm}|>{\centering\arraybackslash}X|}
+\hline
+\textbf{Name} & \textbf{Weight} & \textbf{Goal} \\
+\hline
+Track Lin Vel XY & 1.5 & Tracking desired linear velocity (motion commands) \\
+\hline
+Track Ang Vel Z & 0.7 & Tracking desired angular velocity (motion commands) \\
+\hline
+Feet Air Time & 0.3 & Promoting foot liftoff from ground \\
+\hline
+Lin Vel Z & -2.0 & Stabilizing body vertical movement \\
+\hline
+Ang Vel XY & -0.05 & Stabilizing body orientation \\
+\hline
+Joint Torques & -1.0e-4 & Minimizing energy consumption \\
+\hline
+Joint Acceleration & -2.5e-7 & Minimizing limb mechanical impacts and sudden accelerations \\
+\hline
+Undesired Contacts & -1.0 & Penalty for undesired robot collisions with environment \\
+\hline
+Action Rate & -0.01 & Motion smoothness, minimizing actuator twitching \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsubsection{Training}
+The locomotion policy was trained using Proximal Policy Optimization (PPO) \cite{ppo} within Isaac Lab's massively parallel simulation framework. Following the approach of \cite{learningtowalk}, thousands of robot instances are simulated simultaneously in isolated environments, each with independent velocity commands. Linear velocities in the XY plane are sampled from a uniform distribution ranging from -1.0 to 1.0 m/s, while angular velocities around the Z axis are sampled independently.
+
+Episodes terminate under specific conditions: excessive body tilting beyond 45°, body collision with terrain, exceeding joint position limits, or reaching the maximum episode length of 1000 time steps. Limb collisions with the terrain are penalized through the Undesired Contacts reward component but do not cause termination.
+
+\subsubsection{Locomotion Results}
+The resulting locomotion appropriately mimics real world quadruped movement. Although no gait enforcer was used, the robot successfully lifts its feet from the ground taking steps while keeping body orientation and velocity changes smooth. Thanks to accurate terrain height data, the robot traverses all encountered terrain types in various directions.
+
+Despite many attempts at reward tuning, one issue persists: regardless of terrain slope, body orientation drifts from optimal. This manifests as the robot walking with seemingly randomly selected body tilt instead of maintaining itself parallel to encountered terrain. Although this didn't affect desired velocity tracking or terrain traversal success rate, it introduces unrealistic sensor orientation during dataset collection.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.80\linewidth]{images/Locomotion Results.png}
+    \caption{Frame from simulation environment representing body tilt problem during locomotion.}
+    \label{fig:locomotion-result}
+\end{figure}
+
+\subsection{Dataset Collection}
+With a trained locomotion policy capable of traversing diverse terrains, dataset collection can be performed by deploying the policy across multiple environment instances and recording sensor measurements alongside ground truth terrain data. The collection process leverages the same massively parallel simulation framework used during training.
+
+A critical aspect of this data collection is capturing realistic sensor occlusions caused by the robot's limb movement. As the robot walks, its legs periodically obstruct the depth camera field of view, creating blind spots that the perception system must learn to handle. Figure~\ref{fig:limb-occlusion} illustrates this phenomenon. The collected dataset comprises approximately 50,000 frames across multiple episodes.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/Limb Occlusion.png}
+    \caption{Visualization of depth camera measurements during locomotion showing limb occlusions: Front camera (top left), Rear camera (top center), Top RGB view (top right), Left camera (bottom left), Right camera (bottom center), and ground truth terrain raycast (bottom right).}
+    \label{fig:limb-occlusion}
+\end{figure}
+
+\subsubsection{Dataset Structure}
+Collected data is stored in HDF5 format, providing efficient compression and random access capabilities essential for large scale dataset management. Table~\ref{tab:dataset-structure} details the collected data.
+
+\begin{table}[H]
+\centering
+\caption{Dataset structure and collected data modalities}
+\label{tab:dataset-structure}
+\begin{tabularx}{\textwidth}{|>{\centering\arraybackslash}p{4cm}|>{\centering\arraybackslash}p{3cm}|>{\centering\arraybackslash}X|}
+\hline
+\textbf{Data} & \textbf{Value Range} & \textbf{Details} \\
+\hline
+4 RGB-D camera depth maps & 0.0 -- 5.0\,m & 424$\times$240 resolution, distance from camera's planar matrix \\
+\hline
+Terrain scan & Typically $\pm$1.0\,m & 40$\times$40 grid over 2$\times$2\,m area, spatial resolution 5\,cm, values relative to robot body center \\
+\hline
+Robot position & Depends on environment & Robot body position in simulation's coordinate system (X, Y, Z) \\
+\hline
+Robot orientation & Unit quaternion & Robot body orientation (W, X, Y, Z) \\
+\hline
+\end{tabularx}
+\end{table}
+
+\subsection{Data Preprocessing}
+The collected depth measurements from four cameras must be transformed into a unified representation suitable for neural network training. This preprocessing pipeline converts raw depth images and robot orientation data into a gravity-aligned top-down height map with occlusion awareness. Critically, this transformation is performed on-the-fly during training and exploitation.
+
+The pipeline consists of five sequential steps:
+
+\textbf{Step 1: 3D Reconstruction.} Each pixel in the depth image is unprojected to a 3D point in the camera's optical frame using camera intrinsics derived from the horizontal field of view (87°).
+
+\textbf{Step 2: Point Cloud Fusion.} The 3D points from all four cameras are transformed into a unified robot base frame using known extrinsic parameters.
+
+\textbf{Step 3: Gravity Alignment.} To compensate for robot body tilt, points are rotated using the robot's orientation quaternion followed by yaw only counter-rotation to preserve horizontal alignment \cite{probabilisticterrain}.
+
+\textbf{Step 4: Grid Projection.} The gravity-aligned point cloud is discretized into a 40$\times$40 grid covering a 2$\times$2 meter area with 5\,cm spatial resolution. Multiple points falling into the same grid cell are resolved by retaining the maximum height value.
+
+\textbf{Step 5: Occlusion Mask Generation.} A binary mask is generated marking grid cells containing no measurements, explicitly representing sensor blind spots.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\linewidth]{images/Sparse Map.png}
+    \includegraphics[width=0.45\linewidth]{images/Occlusion Mask.png}
+    \caption{Preprocessing pipeline output: Gravity-aligned height map (left) and corresponding occlusion mask (right), where white regions indicate areas with no sensor measurements.}
+    \label{fig:preprocessing-output}
+\end{figure}
+
+\subsection{Implemented Perception Models}
+Three perception model architectures were developed with progressively increasing complexity. All models share the same input representation (sparse height map, occlusion mask, gravity vector) and prediction target (reconstructed height map). All models employ an encoder-decoder architecture with skip connections, commonly known as U-Net topology \cite{unet}, which has proven effective for dense prediction tasks in similar applications \cite{neuralscene, occludedelevation}.
+
+\subsubsection{Perception Model v1: Shallow Architecture}
+The first model implements a compact encoder-decoder with two encoding stages that downsample the 40$\times$40 input to 10$\times$10 resolution. The gravity vector is processed through a multi-layer perceptron and then replicated across all spatial positions to match the feature map dimensions before concatenation. This architecture contains approximately 100,000 parameters and serves as a baseline.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/Model V1.png}
+    \caption{Perception Model v1 architecture: Shallow encoder-decoder with two encoding stages.}
+    \label{fig:model-v1}
+\end{figure}
+
+\subsubsection{Perception Model v2: Deep Architecture}
+After Model v1 validated the training pipeline, its limited capacity motivated a deeper architecture. The second model extends the encoding depth to three stages, downsampling to 5$\times$5 spatial resolution at the bottleneck. Each stage applies two convolutional layers with batch normalization and ReLU activations, increasing channel count from 32 to 64 to 128. The decoder mirrors this structure with transposed convolutions.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/Model V2.png}
+    \caption{Perception Model v2 architecture: Deep encoder-decoder with three encoding stages.}
+    \label{fig:model-v2}
+\end{figure}
+
+\subsubsection{Perception Model v3: Deep Architecture with Temporal Memory}
+The third model augments the deep architecture with temporal processing capabilities through Convolutional Gated Recurrent Units (ConvGRU) \cite{convgru} at the bottleneck. Unlike standard GRU cells \cite{gru}, ConvGRU maintains the two dimensional spatial structure of feature maps, making it suitable for spatiotemporal processing.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{images/Model V3.png}
+    \caption{Perception Model v3 architecture: Deep encoder-decoder with ConvGRU temporal processing at the bottleneck.}
+    \label{fig:model-v3}
+\end{figure}
+
+The ConvGRU module maintains a hidden state capturing temporal context across consecutive frames, enabling the network to accumulate information over time. Following recommendations from \cite{wildlocomotion}, who demonstrated that GRU outperforms LSTM for locomotion perception tasks, two stacked ConvGRU layers with 128 hidden channels are used. During training, sequences of 32 consecutive frames are processed while maintaining the hidden state, which resets at episode boundaries. This sequential requirement fundamentally changed the training procedure: instead of randomly sampling individual frames, the dataloader extracts overlapping temporal windows from episodes.
+
+\subsubsection{Loss Function Design}
+The training objective combines three loss components:
+
+\textbf{Sparse Loss} measures L1 error in observed regions, weighted at 20.0 to emphasize prediction quality where sensor measurements exist.
+
+\textbf{Occluded Loss} penalizes errors in unobserved regions, weighted at 1.0, acknowledging that hallucination carries inherent uncertainty while guiding the model toward physically plausible terrain structure.
+
+\textbf{Gradient Loss} compares spatial gradients between prediction and ground truth, weighted at 10.0, encouraging the model to reproduce terrain structure including sharp edges where they exist in the ground truth.
+
+\subsubsection{Model Training}
+All models were trained using Adam optimizer \cite{adam} with initial learning rate of 3$\times$10$^{-4}$ and cosine learning rate decay over 100 epochs. Data augmentation included random 90° rotations and flipping. For Model v3, augmentation was applied consistently across entire sequences to maintain temporal coherence.
+
+Training was performed using mixed-precision automatic gradient scaling. For Model v3, backpropagation through time across 32 frames required storing intermediate activations for each timestep, significantly increasing memory consumption and necessitating reduced batch size.
+
+Figure~\ref{fig:training-curves} presents training and validation loss curves. The results demonstrate clear improvement with increasing model complexity: Model v1 achieved final training loss around 0.25, Model v2 improved to approximately 0.17, and Model v3 achieved the lowest at approximately 0.13. However, Model v3 exhibited training instability characteristic of recurrent architectures, where gradients propagating through long sequences can exhibit high variance.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.49\linewidth]{images/Perception Loss Train.png}
+    \includegraphics[width=0.49\linewidth]{images/Perception Loss Val.png}
+    \caption{Training and validation loss curves for all three perception models over 100 epochs. Model v3 (red) achieves lowest final loss but exhibits greater training instability compared to Models v1 (blue) and v2 (green).}
+    \label{fig:training-curves}
+\end{figure}
+
+The validation metrics breakdown (Figure~\ref{fig:training-metrics}) shows Model v3 achieving 0.26\,cm L1 error on observed regions (compared to 0.57\,cm for Model v1) and 0.88\,cm on occluded regions (compared to 1.73\,cm for Model v1), validating the temporal memory approach.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.32\linewidth]{images/Perception L1 Val Obs.png}
+    \includegraphics[width=0.32\linewidth]{images/Perception L1 Val Occ.png}
+    \includegraphics[width=0.32\linewidth]{images/Perception Gradient Loss Val.png}
+    \caption{Validation metrics breakdown showing L1 errors in observed and occluded regions (in centimeters) and gradient loss.}
+    \label{fig:training-metrics}
+\end{figure}
+
+\subsection{Result Comparison}
+To evaluate real-world applicability, qualitative comparisons were performed on diverse terrain configurations. The analysis focuses on Model v2 versus Model v3, as these represent the most capable architectures developed.
+
+\subsubsection{Structured Obstacles}
+On structured terrain (hills, stairs, stepped surfaces), Model v3 demonstrates advantages in reconstructing geometric features. The temporal model maintains smoother slope continuity, better preserves sharp edges and discrete step boundaries, and resolves ambiguities in partially occluded elevation changes more faithfully. Model v3 also produces more accurate hallucinations in unobserved regions. For both models, largest errors concentrate directly beneath the robot body and along diagonal X-shaped patterns corresponding to persistent blind spots between camera fields of view.
+
+\begin{figure}[H]
+    \centering
+    % Row 1 - Model v2
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Stairs GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Stairs Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Stairs Difference.png}
+    \end{minipage}
+
+    \vspace{0.3em}
+
+    % Row 2 - Model v3
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Stairs GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Stairs Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Stairs Difference.png}
+    \end{minipage}
+
+    \caption{Staircase terrain comparison: Model v2 (top row) versus Model v3 (bottom row). From left to right: ground truth, model reconstruction, prediction error.}
+    \label{fig:stairs-comparison}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    % Row 1 - Model v2
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Steps GT.jpg}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Steps Reconstruction.jpg}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Steps Difference.png}
+    \end{minipage}
+
+    \vspace{0.3em}
+
+    % Row 2 - Model v3
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Steps GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Steps Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Steps Difference.png}
+    \end{minipage}
+
+    \caption{Stepped terrain comparison: Model v2 (top row) versus Model v3 (bottom row). From left to right: ground truth, model reconstruction, prediction error.}
+    \label{fig:steps-comparison}
+\end{figure}
+
+\subsubsection{Unstructured Obstacles}
+The unstructured terrain results reveal Model v3's most significant advantage. Without geometric priors to exploit, single-frame reconstruction struggles with inherent ambiguity. Model v3 leverages its recurrent hidden state to accumulate evidence across multiple viewpoints, producing more coherent terrain reconstructions even for random elevation variations. Finally, model v3 exhibit ripple-like artifacts in occluded regions, while Model v2 tends to predict overly uniform patterns for highly irregular terrain.
+
+\begin{figure}[H]
+    \centering
+    % Row 1 - Model v2
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Hill GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Hill Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model v2 Hill Difference.png}
+    \end{minipage}
+
+    \vspace{0.3em}
+
+    % Row 2 - Model v3
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Hill GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Hill Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Hill Difference.png}
+    \end{minipage}
+
+    \caption{Hill terrain comparison: Model v2 (top row) versus Model v3 (bottom row). From left to right: ground truth, model reconstruction, prediction error.}
+    \label{fig:hill-comparison}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    % Row 1 - Model v2
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Noise GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Noise Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V2 Noise Difference.png}
+    \end{minipage}
+
+    \vspace{0.3em}
+
+    % Row 2 - Model v3
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Noise GT.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Noise Reconstruction.png}
+    \end{minipage}%
+    \hfill
+    \begin{minipage}[c]{0.32\linewidth}
+        \centering
+        \includegraphics[width=0.75\linewidth]{images/Model V3 Noise Difference.png}
+    \end{minipage}
+
+    \caption{Random rough terrain comparison: Model v2 (top row) versus Model v3 (bottom row). From left to right: ground truth, model reconstruction, prediction error.}
+    \label{fig:noise-comparison}
+\end{figure}
+
+\subsection{Conclusions}
+This chapter presented a simulation driven approach to developing perception systems for quadruped locomotion. The implementation progressed through four key stages: creating a digital twin with strategic sensor placement, training a locomotion policy using reinforcement learning, collecting a large scale dataset capturing realistic sensor occlusions, and developing three perception models with progressively increasing sophistication.
+
+\begin{table}[H]
+\centering
+\caption{Summary of perception model architectures and performance metrics}
+\label{tab:model-comparison}
+\begin{tabularx}{\textwidth}{|>{\centering\arraybackslash}p{1.5cm}|>{\centering\arraybackslash}X|>{\centering\arraybackslash}p{2cm}|>{\centering\arraybackslash}p{2.5cm}|>{\centering\arraybackslash}p{2.5cm}|}
+\hline
+\textbf{Model} & \textbf{Model Structure} & \textbf{Parameters} & \textbf{L1 Val. Error Observed [cm]} & \textbf{L1 Val. Error Occluded [cm]} \\
+\hline
+v1 & 2 stages & $\sim$143K & 0.57 & 1.73 \\
+\hline
+v2 & 3 stages & $\sim$570K & 0.40 & 0.98 \\
+\hline
+v3 & 3 stages + Temporal Memory & $\sim$2.56M & 0.26 & 0.88 \\
+\hline
+\end{tabularx}
+\end{table}
+
+The experimental results demonstrate clear progression in reconstruction quality. Model v1 established a baseline with 0.57\,cm L1 error on observed regions and 1.73\,cm on occluded regions. Model v2 improved to 0.40\,cm and 0.98\,cm respectively. Model v3's temporal memory mechanism achieved 0.26\,cm on observed and 0.88\,cm on occluded regions, validating that temporal integration across multiple viewpoints significantly improves terrain reconstruction quality, particularly in unstructured environments where geometric priors cannot be exploited.
+
+\subsection{Future Work}
+Several directions present opportunities for improvement:
+
+\textbf{Motion Compensation.} The current implementation does not explicitly compensate for robot translation between frames. Maintaining a spatially registered history buffer with odometry aligned observations could improve memory mechanism \cite{elevationmappinggpu}.
+
+\textbf{Historical Frame Stacking.} An alternative to recurrent processing would be stacking multiple motion compensated historical frames as explicit input channels, allowing standard convolutional architectures to learn temporal fusion without hidden states.
+
+\textbf{Spatial Resolution Scaling.} Operating at higher resolution would benefit foothold planning but introduces computational challenges for the ConvGRU hidden state. Hierarchical approaches with multi-scale temporal memories could address this.
+
+\textbf{Edge Aware Loss Functions.} More sophisticated formulations could explicitly detect and weight discontinuities, applying stronger penalties at geometric boundaries while relaxing smoothness requirements within homogeneous regions.
+
+\textbf{Connection to Image Inpainting.} The terrain reconstruction problem shares similarities with image inpainting. Training with randomized synthetic occlusion masks could augment the dataset size. Adversarial training or diffusion based approaches could improve hallucination quality by leveraging learned terrain priors \cite{occludedelevation}.
+
+\textbf{Attention Mechanisms.} Inserting transformer layers at the bottleneck could enable explicit long range dependencies between distant terrain regions \cite{neuralscene}.
+
+\textbf{Volumetric Representation.} Extending this workflow from 2.5D height maps to full 3D voxel grids would enable representation of overhanging structures and multi level terrain features.
+
+The simulation driven workflow established in this chapter provides the foundation for rapidly iterating on these improvements before real-world deployment.

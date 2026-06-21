@@ -1,0 +1,1406 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{none/global//global/global/global}
+    \entry{szumowski2014}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=b9c5eb2b8a67dfefd5c41c5c1789aa4a}{%
+           family={Szumowski},
+           familyi={S\bibinitperiod},
+           given={Maksymilian},
+           giveni={M\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{fullhash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{fullhashraw}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{bibnamehash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{authorbibnamehash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{authornamehash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{authorfullhash}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \strng{authorfullhashraw}{b9c5eb2b8a67dfefd5c41c5c1789aa4a}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Projekt oraz opracowanie prototypu robota humanoidalnego}}
+      \field{title}{Project Design and Prototype of a Humanoid Robot}
+      \field{type}{mathesis}
+      \field{year}{2014}
+    \endentry
+    \entry{mikolajczyk2019}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=644f15ff5fa393e30072df1eda9d2df8}{%
+           family={Mikołajczyk},
+           familyi={M\bibinitperiod},
+           given={Kacper},
+           giveni={K\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{fullhash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{fullhashraw}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{bibnamehash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{authorbibnamehash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{authornamehash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{authorfullhash}{644f15ff5fa393e30072df1eda9d2df8}
+      \strng{authorfullhashraw}{644f15ff5fa393e30072df1eda9d2df8}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Generowanie trajektorii dla redundantnego robota humanoidalnego}}
+      \field{title}{Trajectory Generation for Redundant Humanoid Robot}
+      \field{type}{mathesis}
+      \field{year}{2019}
+    \endentry
+    \entry{mazurkiewicz2024}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=92eaddc6333b02373070edc6a2e044ca}{%
+           family={Mazurkiewicz},
+           familyi={M\bibinitperiod},
+           given={Jakub},
+           giveni={J\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{fullhash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{fullhashraw}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{bibnamehash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{authorbibnamehash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{authornamehash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{authorfullhash}{92eaddc6333b02373070edc6a2e044ca}
+      \strng{authorfullhashraw}{92eaddc6333b02373070edc6a2e044ca}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Tworzenie cyfrowego bliźniaka dla robota humanoidalnego w ROS: Modelowanie i Symulacja}}
+      \field{title}{Developing a Digital Twin for a Humanoid Robot in ROS: Modeling and Simulation}
+      \field{type}{mathesis}
+      \field{year}{2024}
+    \endentry
+    \entry{sufin2023}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=a742feb35fa1e8eaacfd00bef01a874b}{%
+           family={Sufin},
+           familyi={S\bibinitperiod},
+           given={Stanisław},
+           giveni={S\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{fullhash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{fullhashraw}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{bibnamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorbibnamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authornamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorfullhash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorfullhashraw}{a742feb35fa1e8eaacfd00bef01a874b}
+      \field{extraname}{1}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Analiza Wytrzymałościowa kół zębatych jednostki napędowej robota Meldog}}
+      \field{title}{Analysis of the Strength of 3D-Printed Gears in the Drive Unit of the Meldog Robot}
+      \field{type}{mathesis}
+      \field{year}{2023}
+    \endentry
+    \entry{frydrych2022}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=35dc9ee516f295171b2803af4ecc2f87}{%
+           family={Frydrych},
+           familyi={F\bibinitperiod},
+           given={Jakub},
+           giveni={J\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{fullhash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{fullhashraw}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{bibnamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorbibnamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authornamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorfullhash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorfullhashraw}{35dc9ee516f295171b2803af4ecc2f87}
+      \field{extraname}{1}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Projekt jednostki napędowej dla kończyny robota czworonożnego}}
+      \field{title}{Actuator Design for a Quadruped Robot Limb}
+      \field{type}{mathesis}
+      \field{year}{2022}
+    \endentry
+    \entry{frydrych2023}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=35dc9ee516f295171b2803af4ecc2f87}{%
+           family={Frydrych},
+           familyi={F\bibinitperiod},
+           given={Jakub},
+           giveni={J\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{fullhash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{fullhashraw}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{bibnamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorbibnamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authornamehash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorfullhash}{35dc9ee516f295171b2803af4ecc2f87}
+      \strng{authorfullhashraw}{35dc9ee516f295171b2803af4ecc2f87}
+      \field{extraname}{2}
+      \field{sortinit}{6}
+      \field{sortinithash}{b33bc299efb3c36abec520a4c896a66d}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Opracowanie prototypu kończyny robota czteronożnego ''Meldog''}}
+      \field{title}{Development of a Limb Prototype for the "Meldog" Quadruped Robot}
+      \field{type}{mathesis}
+      \field{year}{2023}
+    \endentry
+    \entry{krajewski2023}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=f91d38b5837bf9842a63924a9f4efd68}{%
+           family={Krajewski},
+           familyi={K\bibinitperiod},
+           given={Bartłomiej},
+           giveni={B\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{fullhash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{fullhashraw}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{bibnamehash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{authorbibnamehash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{authornamehash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{authorfullhash}{f91d38b5837bf9842a63924a9f4efd68}
+      \strng{authorfullhashraw}{f91d38b5837bf9842a63924a9f4efd68}
+      \field{sortinit}{7}
+      \field{sortinithash}{108d0be1b1bee9773a1173443802c0a3}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Generowanie trajektorii optymalnej i modelowanie sterowanego ruchu nogi robota skaczącego}}
+      \field{title}{Optimal Trajectory Generation and Controlled Leg Motion Modeling for a Jumping Robot}
+      \field{type}{mathesis}
+      \field{year}{2023}
+    \endentry
+    \entry{mitcheetah3}{inproceedings}{}{}
+      \name{author}{6}{}{%
+        {{hash=4027793c1b49393792aeccf6a7c0df34}{%
+           family={Bledt},
+           familyi={B\bibinitperiod},
+           given={Gerardo},
+           giveni={G\bibinitperiod}}}%
+        {{hash=8bb6671fd614ede7bb9233476cbc4a6f}{%
+           family={Powell},
+           familyi={P\bibinitperiod},
+           given={Matthew\bibnamedelima J.},
+           giveni={M\bibinitperiod\bibinitdelim J\bibinitperiod}}}%
+        {{hash=538987da5e39cac0ecbf051e6094bcdb}{%
+           family={Katz},
+           familyi={K\bibinitperiod},
+           given={Benjamin},
+           giveni={B\bibinitperiod}}}%
+        {{hash=f5e20dffb3e35084023376ba5e0919df}{%
+           family={Di\bibnamedelima Carlo},
+           familyi={D\bibinitperiod\bibinitdelim C\bibinitperiod},
+           given={Jared},
+           giveni={J\bibinitperiod}}}%
+        {{hash=798be7fcfe7ce5d98b37f6cb266778e4}{%
+           family={Wensing},
+           familyi={W\bibinitperiod},
+           given={Patrick\bibnamedelima M.},
+           giveni={P\bibinitperiod\bibinitdelim M\bibinitperiod}}}%
+        {{hash=23a30c71925ebf508cf3e30627b69403}{%
+           family={Kim},
+           familyi={K\bibinitperiod},
+           given={Sangbae},
+           giveni={S\bibinitperiod}}}%
+      }
+      \strng{namehash}{91c0fed15635a579b43fab200698bc3a}
+      \strng{fullhash}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \strng{fullhashraw}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \strng{bibnamehash}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \strng{authorbibnamehash}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \strng{authornamehash}{91c0fed15635a579b43fab200698bc3a}
+      \strng{authorfullhash}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \strng{authorfullhashraw}{76d51bc2b4b3f6945c4d6b4b49613a12}
+      \field{sortinit}{8}
+      \field{sortinithash}{a231b008ebf0ecbe0b4d96dcc159445f}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}
+      \field{title}{MIT Cheetah 3: Design and Control of a Robust, Dynamic Quadruped Robot}
+      \field{year}{2018}
+      \field{pages}{2245\bibrangedash 2252}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/IROS.2018.8593885
+      \endverb
+      \keyw{Legged locomotion;Actuators;Torque;Force;Knee;Robot sensing systems}
+    \endentry
+    \entry{anybotics2025}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=d81daf2adaf468cc42db2b2575978c9d}{%
+           family={ANYbiotics},
+           familyi={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{fullhash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{fullhashraw}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{bibnamehash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{authorbibnamehash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{authornamehash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{authorfullhash}{d81daf2adaf468cc42db2b2575978c9d}
+      \strng{authorfullhashraw}{d81daf2adaf468cc42db2b2575978c9d}
+      \field{sortinit}{9}
+      \field{sortinithash}{0a5ebc79d83c96b6579069544c73c7d4}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.anybotics.com/robotics/anymal/}}
+      \field{note}{Accessed: April 2025}
+      \field{title}{{ANYmal quadruped robot}}
+      \field{year}{2025}
+    \endentry
+    \entry{unitree2024}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=08fd2533b9ec44ff68ce8db72d8f45a6}{%
+           family={Robotics},
+           familyi={R\bibinitperiod},
+           given={Unitree},
+           giveni={U\bibinitperiod}}}%
+      }
+      \strng{namehash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{fullhash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{fullhashraw}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{bibnamehash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{authorbibnamehash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{authornamehash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{authorfullhash}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \strng{authorfullhashraw}{08fd2533b9ec44ff68ce8db72d8f45a6}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.unitree.com/go2}}
+      \field{note}{Accessed: April 2024}
+      \field{title}{{Unitree Go2}}
+      \field{year}{2024}
+    \endentry
+    \entry{bostondynamics2025}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=e17054e48d4eec6b4dffea3c5c4ade10}{%
+           family={Dynamics},
+           familyi={D\bibinitperiod},
+           given={Boston},
+           giveni={B\bibinitperiod}}}%
+      }
+      \strng{namehash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{fullhash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{fullhashraw}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{bibnamehash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{authorbibnamehash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{authornamehash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{authorfullhash}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \strng{authorfullhashraw}{e17054e48d4eec6b4dffea3c5c4ade10}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.bostondynamics.com/products/spot}}
+      \field{note}{Accessed: April 2025}
+      \field{title}{{Spot}}
+      \field{year}{2025}
+    \endentry
+    \entry{Robotic_Hike_with_ANYmal}{misc}{}{}
+      \name{author}{1}{}{%
+        {{hash=d40fd6fc5667f106e6ee9d457fd9de55}{%
+           family={ETH\bibnamedelima Zürich},
+           familyi={E\bibinitperiod\bibinitdelim Z\bibinitperiod},
+           given={Robotic\bibnamedelimb Systems\bibnamedelimb Lab:\bibnamedelimb Legged\bibnamedelima Robotics},
+           giveni={R\bibinitperiod\bibinitdelim S\bibinitperiod\bibinitdelim L\bibinitperiod\bibinitdelim L\bibinitperiod\bibinitdelim R\bibinitperiod},
+           prefix={at},
+           prefixi={a\bibinitperiod}}}%
+      }
+      \strng{namehash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{fullhash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{fullhashraw}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{bibnamehash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{authorbibnamehash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{authornamehash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{authorfullhash}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \strng{authorfullhashraw}{d40fd6fc5667f106e6ee9d457fd9de55}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{howpublished}{\url{https://www.youtube.com/watch?v=oPNkeoGMvAE}}
+      \field{note}{Accessed: April 2025}
+      \field{title}{{Robotic Hike with ANYmal}}
+      \field{year}{2021}
+    \endentry
+    \entry{Neural_Scene_Representation_for_Locomotion_on_Structured_Terrain}{misc}{}{}
+      \name{author}{5}{}{%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=5ac29b212261fe3d27e4d51cf14a990e}{%
+           family={Rudin},
+           familyi={R\bibinitperiod},
+           given={Nikita},
+           giveni={N\bibinitperiod}}}%
+        {{hash=5e4df5f8edf2e9a622e7b5fa7d29ca06}{%
+           family={Choy},
+           familyi={C\bibinitperiod},
+           given={Christopher},
+           giveni={C\bibinitperiod}}}%
+        {{hash=d759f492243bb3ad5b49139f1d2f99c4}{%
+           family={Anandkumar},
+           familyi={A\bibinitperiod},
+           given={Animashree},
+           giveni={A\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{fullhash}{1137679766f9b74c70d67ba16405323f}
+      \strng{fullhashraw}{1137679766f9b74c70d67ba16405323f}
+      \strng{bibnamehash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authorbibnamehash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authornamehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{authorfullhash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authorfullhashraw}{1137679766f9b74c70d67ba16405323f}
+      \field{extraname}{1}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.RO}
+      \field{eprinttype}{arXiv}
+      \field{title}{Neural Scene Representation for Locomotion on Structured Terrain}
+      \field{year}{2022}
+      \verb{eprint}
+      \verb 2206.08077
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2206.08077
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2206.08077
+      \endverb
+    \endentry
+    \entry{ANYmal_parkour:_Learning_agile_navigation_for_quadrupedal_robots}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=5ac29b212261fe3d27e4d51cf14a990e}{%
+           family={Rudin},
+           familyi={R\bibinitperiod},
+           given={Nikita},
+           giveni={N\bibinitperiod}}}%
+        {{hash=e30d282799e8dbe202782d46b1609394}{%
+           family={Sako},
+           familyi={S\bibinitperiod},
+           given={Dhionis},
+           giveni={D\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{fullhash}{396de01149a058f7695fada2e2a85704}
+      \strng{fullhashraw}{396de01149a058f7695fada2e2a85704}
+      \strng{bibnamehash}{396de01149a058f7695fada2e2a85704}
+      \strng{authorbibnamehash}{396de01149a058f7695fada2e2a85704}
+      \strng{authornamehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{authorfullhash}{396de01149a058f7695fada2e2a85704}
+      \strng{authorfullhashraw}{396de01149a058f7695fada2e2a85704}
+      \field{extraname}{2}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Science Robotics}
+      \field{number}{88}
+      \field{title}{ANYmal parkour: Learning agile navigation for quadrupedal robots}
+      \field{volume}{9}
+      \field{year}{2024}
+      \field{pages}{eadi7566}
+      \range{pages}{-1}
+      \verb{doi}
+      \verb 10.1126/scirobotics.adi7566
+      \endverb
+      \verb{eprint}
+      \verb https://www.science.org/doi/pdf/10.1126/scirobotics.adi7566
+      \endverb
+      \verb{urlraw}
+      \verb https://www.science.org/doi/abs/10.1126/scirobotics.adi7566
+      \endverb
+      \verb{url}
+      \verb https://www.science.org/doi/abs/10.1126/scirobotics.adi7566
+      \endverb
+    \endentry
+    \entry{Reconstructing_Occluded_Elevation_Information_in_Terrain_Maps_With_Self-Supervised_Learning}{article}{}{}
+      \name{author}{5}{}{%
+        {{hash=5fdfec48afa8ffff78b36f7fb49be65d}{%
+           family={Stölzle},
+           familyi={S\bibinitperiod},
+           given={Maximilian},
+           giveni={M\bibinitperiod}}}%
+        {{hash=43b8c965de3f336787b148625e017986}{%
+           family={Miki},
+           familyi={M\bibinitperiod},
+           given={Takahiro},
+           giveni={T\bibinitperiod}}}%
+        {{hash=909e6e4193776a691ea0d8356c2d2511}{%
+           family={Gerdes},
+           familyi={G\bibinitperiod},
+           given={Levin},
+           giveni={L\bibinitperiod}}}%
+        {{hash=f85b8ff37a043f639c11f7bd7d596367}{%
+           family={Azkarate},
+           familyi={A\bibinitperiod},
+           given={Martin},
+           giveni={M\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{424f1f9d3b38a9b8be60b371a39d4436}
+      \strng{fullhash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{fullhashraw}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{bibnamehash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authorbibnamehash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authornamehash}{424f1f9d3b38a9b8be60b371a39d4436}
+      \strng{authorfullhash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authorfullhashraw}{6ff99a491211ae934e8c74838c1ff30b}
+      \field{extraname}{1}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Robotics and Automation Letters}
+      \field{number}{2}
+      \field{title}{Reconstructing Occluded Elevation Information in Terrain Maps With Self-Supervised Learning}
+      \field{volume}{7}
+      \field{year}{2022}
+      \field{pages}{1697\bibrangedash 1704}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/LRA.2022.3141662
+      \endverb
+      \keyw{Robots;Casting;Image reconstruction;Neural networks;Training;Planning;Sensors;AI-enabled robotics mapping}
+    \endentry
+    \entry{Locomotion_Policy_Guided_Traversability_Learning_using_Volumetric_Representations_of_Complex_Environments}{inproceedings}{}{}
+      \name{author}{4}{}{%
+        {{hash=b59820709c377295db1eea1be13551af}{%
+           family={Frey},
+           familyi={F\bibinitperiod},
+           given={Jonas},
+           giveni={J\bibinitperiod}}}%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=a366bd6f7d23477c863b29df74f2ab06}{%
+           family={Khattak},
+           familyi={K\bibinitperiod},
+           given={Shehryar},
+           giveni={S\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {IEEE}%
+      }
+      \strng{namehash}{d6fc1ed988b4a06993b68155f5306b62}
+      \strng{fullhash}{f0e8c9ba9215d106b09723fdf259df0a}
+      \strng{fullhashraw}{f0e8c9ba9215d106b09723fdf259df0a}
+      \strng{bibnamehash}{f0e8c9ba9215d106b09723fdf259df0a}
+      \strng{authorbibnamehash}{f0e8c9ba9215d106b09723fdf259df0a}
+      \strng{authornamehash}{d6fc1ed988b4a06993b68155f5306b62}
+      \strng{authorfullhash}{f0e8c9ba9215d106b09723fdf259df0a}
+      \strng{authorfullhashraw}{f0e8c9ba9215d106b09723fdf259df0a}
+      \field{sortinit}{1}
+      \field{sortinithash}{4f6aaa89bab872aa0999fec09ff8e98a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}
+      \field{month}{10}
+      \field{title}{Locomotion Policy Guided Traversability Learning using Volumetric Representations of Complex Environments}
+      \field{year}{2022}
+      \field{pages}{5722\bibrangedash 5729}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/iros47612.2022.9982190
+      \endverb
+      \verb{urlraw}
+      \verb http://dx.doi.org/10.1109/IROS47612.2022.9982190
+      \endverb
+      \verb{url}
+      \verb http://dx.doi.org/10.1109/IROS47612.2022.9982190
+      \endverb
+    \endentry
+    \entry{Probabilistic_Terrain_Mapping_for_Mobile_Robots_With_Uncertain_Localization}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=904855639b01ea24267ffb37256b3ace}{%
+           family={Fankhauser},
+           familyi={F\bibinitperiod},
+           given={Péter},
+           giveni={P\bibinitperiod}}}%
+        {{hash=f1435bb9c30ae81b29d01029941e7068}{%
+           family={Bloesch},
+           familyi={B\bibinitperiod},
+           given={Michael},
+           giveni={M\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{7a6c462e1a27ee90cf6120bb10df0863}
+      \strng{fullhash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{fullhashraw}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{bibnamehash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authorbibnamehash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authornamehash}{7a6c462e1a27ee90cf6120bb10df0863}
+      \strng{authorfullhash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authorfullhashraw}{79844fc5f46803c375c54f6b7faf01e7}
+      \field{extraname}{1}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Robotics and Automation Letters}
+      \field{number}{4}
+      \field{title}{Probabilistic Terrain Mapping for Mobile Robots With Uncertain Localization}
+      \field{volume}{3}
+      \field{year}{2018}
+      \field{pages}{3019\bibrangedash 3026}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/LRA.2018.2849506
+      \endverb
+      \keyw{Robot sensing systems;Uncertainty;Legged locomotion;Position measurement;Probabilistic logic;Mapping;field robots;legged robots}
+    \endentry
+    \entry{Oleynikova_2017}{inproceedings}{}{}
+      \name{author}{5}{}{%
+        {{hash=60114eee586cdab541364741e4adaea1}{%
+           family={Oleynikova},
+           familyi={O\bibinitperiod},
+           given={Helen},
+           giveni={H\bibinitperiod}}}%
+        {{hash=e16b1ade243d364a7f18ae7567bd0a61}{%
+           family={Taylor},
+           familyi={T\bibinitperiod},
+           given={Zachary},
+           giveni={Z\bibinitperiod}}}%
+        {{hash=7df7382732115103788169d428df1777}{%
+           family={Fehr},
+           familyi={F\bibinitperiod},
+           given={Marius},
+           giveni={M\bibinitperiod}}}%
+        {{hash=6ee8958bbf32527489012d8ca7c95ee3}{%
+           family={Siegwart},
+           familyi={S\bibinitperiod},
+           given={Roland},
+           giveni={R\bibinitperiod}}}%
+        {{hash=86481b508a2ad389b40948bac9c23e65}{%
+           family={Nieto},
+           familyi={N\bibinitperiod},
+           given={Juan},
+           giveni={J\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {IEEE}%
+      }
+      \strng{namehash}{af10b8d871931d69d47d7555e14e8efd}
+      \strng{fullhash}{f4cea12a183f179ae1ed4955eb0d3323}
+      \strng{fullhashraw}{f4cea12a183f179ae1ed4955eb0d3323}
+      \strng{bibnamehash}{f4cea12a183f179ae1ed4955eb0d3323}
+      \strng{authorbibnamehash}{f4cea12a183f179ae1ed4955eb0d3323}
+      \strng{authornamehash}{af10b8d871931d69d47d7555e14e8efd}
+      \strng{authorfullhash}{f4cea12a183f179ae1ed4955eb0d3323}
+      \strng{authorfullhashraw}{f4cea12a183f179ae1ed4955eb0d3323}
+      \field{sortinit}{2}
+      \field{sortinithash}{8b555b3791beccb63322c22f3320aa9a}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}
+      \field{month}{9}
+      \field{title}{Voxblox: Incremental 3D Euclidean Signed Distance Fields for on-board MAV planning}
+      \field{year}{2017}
+      \field{pages}{1366\bibrangedash 1373}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/iros.2017.8202315
+      \endverb
+      \verb{urlraw}
+      \verb http://dx.doi.org/10.1109/IROS.2017.8202315
+      \endverb
+      \verb{url}
+      \verb http://dx.doi.org/10.1109/IROS.2017.8202315
+      \endverb
+    \endentry
+    \entry{Learning_Robust_Perception-Based_Controller_for_Quadruped_Robot}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=5f47f626fc4688eb0d580b8f6e35f4d9}{%
+           family={Muhamad},
+           familyi={M\bibinitperiod},
+           given={Fikih},
+           giveni={F\bibinitperiod}}}%
+        {{hash=e6f75e7df19f3564584c1e3c82ce4057}{%
+           family={Kim},
+           familyi={K\bibinitperiod},
+           given={Jung-Su},
+           giveni={J\bibinithyphendelim S\bibinitperiod}}}%
+        {{hash=912c3c90d7841c70b1aab0b439e213df}{%
+           family={Park},
+           familyi={P\bibinitperiod},
+           given={Jae-Han},
+           giveni={J\bibinithyphendelim H\bibinitperiod}}}%
+      }
+      \strng{namehash}{0acb119303c910daeb0a8895d0ec5bda}
+      \strng{fullhash}{54a04ee8f77c9f757506b36509b7049a}
+      \strng{fullhashraw}{54a04ee8f77c9f757506b36509b7049a}
+      \strng{bibnamehash}{54a04ee8f77c9f757506b36509b7049a}
+      \strng{authorbibnamehash}{54a04ee8f77c9f757506b36509b7049a}
+      \strng{authornamehash}{0acb119303c910daeb0a8895d0ec5bda}
+      \strng{authorfullhash}{54a04ee8f77c9f757506b36509b7049a}
+      \strng{authorfullhashraw}{54a04ee8f77c9f757506b36509b7049a}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Access}
+      \field{title}{Learning Robust Perception-Based Controller for Quadruped Robot}
+      \field{volume}{11}
+      \field{year}{2023}
+      \field{pages}{94497\bibrangedash 94505}
+      \range{pages}{9}
+      \verb{doi}
+      \verb 10.1109/ACCESS.2023.3311141
+      \endverb
+      \keyw{Robots;Robot sensing systems;Quadrupedal robots;Noise measurement;Training;Sensors;Propioception;Legged locomotion;Robust control;Gait controller;machine learning;quadruped robot;robust perception}
+    \endentry
+    \entry{grandia2022perceptivelocomotionnonlinearmodel}{misc}{}{}
+      \name{author}{5}{}{%
+        {{hash=f85389162930f5ad2711e55587aade76}{%
+           family={Grandia},
+           familyi={G\bibinitperiod},
+           given={Ruben},
+           giveni={R\bibinitperiod}}}%
+        {{hash=ad2987494c3bb86d0303d2911b2771fb}{%
+           family={Jenelten},
+           familyi={J\bibinitperiod},
+           given={Fabian},
+           giveni={F\bibinitperiod}}}%
+        {{hash=3c9adbd5d0bd159050c0447bd3be4ec9}{%
+           family={Yang},
+           familyi={Y\bibinitperiod},
+           given={Shaohui},
+           giveni={S\bibinitperiod}}}%
+        {{hash=c4c1da2dc11d020bb26327be9d2292a5}{%
+           family={Farshidian},
+           familyi={F\bibinitperiod},
+           given={Farbod},
+           giveni={F\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{21e1a792f1574dcccd0faa4286be8745}
+      \strng{fullhash}{d747e7ba8b6faf95bdcdd841506d1423}
+      \strng{fullhashraw}{d747e7ba8b6faf95bdcdd841506d1423}
+      \strng{bibnamehash}{d747e7ba8b6faf95bdcdd841506d1423}
+      \strng{authorbibnamehash}{d747e7ba8b6faf95bdcdd841506d1423}
+      \strng{authornamehash}{21e1a792f1574dcccd0faa4286be8745}
+      \strng{authorfullhash}{d747e7ba8b6faf95bdcdd841506d1423}
+      \strng{authorfullhashraw}{d747e7ba8b6faf95bdcdd841506d1423}
+      \field{sortinit}{3}
+      \field{sortinithash}{ad6fe7482ffbd7b9f99c9e8b5dccd3d7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.RO}
+      \field{eprinttype}{arXiv}
+      \field{title}{Perceptive Locomotion through Nonlinear Model Predictive Control}
+      \field{year}{2022}
+      \verb{eprint}
+      \verb 2208.08373
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2208.08373
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2208.08373
+      \endverb
+    \endentry
+    \entry{isaacgym}{inproceedings}{}{}
+      \true{moreauthor}
+      \true{morelabelname}
+      \name{author}{10}{}{%
+        {{hash=b2920c1e5c13f9f9448bc7ad484b44ed}{%
+           family={Makoviychuk},
+           familyi={M\bibinitperiod},
+           given={Viktor},
+           giveni={V\bibinitperiod}}}%
+        {{hash=c79f4bf18afd74edcff18e424cbe8b5c}{%
+           family={Wawrzyniak},
+           familyi={W\bibinitperiod},
+           given={Lukasz},
+           giveni={L\bibinitperiod}}}%
+        {{hash=e1374704b8aacb6fd5dbb0413f159238}{%
+           family={Guo},
+           familyi={G\bibinitperiod},
+           given={Yunrong},
+           giveni={Y\bibinitperiod}}}%
+        {{hash=c8e642dcd0c155ed924ff41ccffb368f}{%
+           family={Lu},
+           familyi={L\bibinitperiod},
+           given={Michelle},
+           giveni={M\bibinitperiod}}}%
+        {{hash=b097d7c793249b8202873b12d4f1a21f}{%
+           family={Storey},
+           familyi={S\bibinitperiod},
+           given={Kier},
+           giveni={K\bibinitperiod}}}%
+        {{hash=fb9fad16d2ae65ef730edb579c4636cf}{%
+           family={Macklin},
+           familyi={M\bibinitperiod},
+           given={Miles},
+           giveni={M\bibinitperiod}}}%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=5ac29b212261fe3d27e4d51cf14a990e}{%
+           family={Rudin},
+           familyi={R\bibinitperiod},
+           given={Nikita},
+           giveni={N\bibinitperiod}}}%
+        {{hash=c924448369e4049193582589341c8dd4}{%
+           family={Allshire},
+           familyi={A\bibinitperiod},
+           given={Arthur},
+           giveni={A\bibinitperiod}}}%
+        {{hash=91f71111407c735a209311b2c093f258}{%
+           family={Handa},
+           familyi={H\bibinitperiod},
+           given={Ankur},
+           giveni={A\bibinitperiod}}}%
+      }
+      \strng{namehash}{3bd11ba81deac891dcfa9d6856758035}
+      \strng{fullhash}{67671fbf302bf1584072858ffd15280f}
+      \strng{fullhashraw}{67671fbf302bf1584072858ffd15280f}
+      \strng{bibnamehash}{3bd11ba81deac891dcfa9d6856758035}
+      \strng{authorbibnamehash}{3bd11ba81deac891dcfa9d6856758035}
+      \strng{authornamehash}{3bd11ba81deac891dcfa9d6856758035}
+      \strng{authorfullhash}{67671fbf302bf1584072858ffd15280f}
+      \strng{authorfullhashraw}{67671fbf302bf1584072858ffd15280f}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks Track (Round 2)}
+      \field{title}{Isaac Gym: High performance GPU-based physics simulation for robot learning}
+      \field{year}{2021}
+    \endentry
+    \entry{learningtowalk}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=5ac29b212261fe3d27e4d51cf14a990e}{%
+           family={Rudin},
+           familyi={R\bibinitperiod},
+           given={Nikita},
+           giveni={N\bibinitperiod}}}%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=60cbc78a7a7379afdab68a90e478f9da}{%
+           family={Reist},
+           familyi={R\bibinitperiod},
+           given={Philipp},
+           giveni={P\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{5f8eebe34c472dc01f89b4339c3789c8}
+      \strng{fullhash}{7b30bae853adb350379ddd4bf62c03e2}
+      \strng{fullhashraw}{7b30bae853adb350379ddd4bf62c03e2}
+      \strng{bibnamehash}{7b30bae853adb350379ddd4bf62c03e2}
+      \strng{authorbibnamehash}{7b30bae853adb350379ddd4bf62c03e2}
+      \strng{authornamehash}{5f8eebe34c472dc01f89b4339c3789c8}
+      \strng{authorfullhash}{7b30bae853adb350379ddd4bf62c03e2}
+      \strng{authorfullhashraw}{7b30bae853adb350379ddd4bf62c03e2}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Conference on Robot Learning}
+      \field{title}{Learning to walk in minutes using massively parallel deep reinforcement learning}
+      \field{year}{2022}
+    \endentry
+    \entry{sufin2024}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=a742feb35fa1e8eaacfd00bef01a874b}{%
+           family={Sufin},
+           familyi={S\bibinitperiod},
+           given={Stanisław},
+           giveni={S\bibinitperiod}}}%
+      }
+      \list{institution}{2}{%
+        {Faculty of Power}%
+        {Aeronautical Engineering, Warsaw University of Technology}%
+      }
+      \strng{namehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{fullhash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{fullhashraw}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{bibnamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorbibnamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authornamehash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorfullhash}{a742feb35fa1e8eaacfd00bef01a874b}
+      \strng{authorfullhashraw}{a742feb35fa1e8eaacfd00bef01a874b}
+      \field{extraname}{2}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{note}{Original title: \emph{Cyfrowy Bliźniak czworonożnego robota Meldog}}
+      \field{title}{Creating a Digital Twin for the quadruped robot Meldog}
+      \field{type}{mathesis}
+      \field{year}{2024}
+    \endentry
+    \entry{ppo}{article}{}{}
+      \name{author}{5}{}{%
+        {{hash=3e09bd2a25d237ebdaed560a07c0451e}{%
+           family={Schulman},
+           familyi={S\bibinitperiod},
+           given={John},
+           giveni={J\bibinitperiod}}}%
+        {{hash=674ede0b9cd02a2bf5fc662972efb9f0}{%
+           family={Wolski},
+           familyi={W\bibinitperiod},
+           given={Filip},
+           giveni={F\bibinitperiod}}}%
+        {{hash=4164e43d8cf919f5e3f8d80f5ea23f36}{%
+           family={Dhariwal},
+           familyi={D\bibinitperiod},
+           given={Prafulla},
+           giveni={P\bibinitperiod}}}%
+        {{hash=a812c46caad94fc8701be37871f303ba}{%
+           family={Radford},
+           familyi={R\bibinitperiod},
+           given={Alec},
+           giveni={A\bibinitperiod}}}%
+        {{hash=be38507da6ab98e7ac01ac2c6b7e13eb}{%
+           family={Klimov},
+           familyi={K\bibinitperiod},
+           given={Oleg},
+           giveni={O\bibinitperiod}}}%
+      }
+      \strng{namehash}{8d6613ae59595910252a86a61babf6c8}
+      \strng{fullhash}{a6c6ed5a5aeb74e536f16291276ae392}
+      \strng{fullhashraw}{a6c6ed5a5aeb74e536f16291276ae392}
+      \strng{bibnamehash}{a6c6ed5a5aeb74e536f16291276ae392}
+      \strng{authorbibnamehash}{a6c6ed5a5aeb74e536f16291276ae392}
+      \strng{authornamehash}{8d6613ae59595910252a86a61babf6c8}
+      \strng{authorfullhash}{a6c6ed5a5aeb74e536f16291276ae392}
+      \strng{authorfullhashraw}{a6c6ed5a5aeb74e536f16291276ae392}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:1707.06347}
+      \field{title}{Proximal policy optimization algorithms}
+      \field{year}{2017}
+    \endentry
+    \entry{probabilisticterrain}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=904855639b01ea24267ffb37256b3ace}{%
+           family={Fankhauser},
+           familyi={F\bibinitperiod},
+           given={Péter},
+           giveni={P\bibinitperiod}}}%
+        {{hash=f1435bb9c30ae81b29d01029941e7068}{%
+           family={Bloesch},
+           familyi={B\bibinitperiod},
+           given={Michael},
+           giveni={M\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{7a6c462e1a27ee90cf6120bb10df0863}
+      \strng{fullhash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{fullhashraw}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{bibnamehash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authorbibnamehash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authornamehash}{7a6c462e1a27ee90cf6120bb10df0863}
+      \strng{authorfullhash}{79844fc5f46803c375c54f6b7faf01e7}
+      \strng{authorfullhashraw}{79844fc5f46803c375c54f6b7faf01e7}
+      \field{extraname}{2}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Robotics and Automation Letters}
+      \field{number}{4}
+      \field{title}{Probabilistic Terrain Mapping for Mobile Robots With Uncertain Localization}
+      \field{volume}{3}
+      \field{year}{2018}
+      \field{pages}{3019\bibrangedash 3026}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/LRA.2018.2849506
+      \endverb
+    \endentry
+    \entry{unet}{inproceedings}{}{}
+      \name{author}{3}{}{%
+        {{hash=8e46da9de9e53ea5d37089897d69cdd9}{%
+           family={Ronneberger},
+           familyi={R\bibinitperiod},
+           given={Olaf},
+           giveni={O\bibinitperiod}}}%
+        {{hash=168e84ce3582cbc6bac5e2ebc3ef8442}{%
+           family={Fischer},
+           familyi={F\bibinitperiod},
+           given={Philipp},
+           giveni={P\bibinitperiod}}}%
+        {{hash=b452a32296958371572717940f900884}{%
+           family={Brox},
+           familyi={B\bibinitperiod},
+           given={Thomas},
+           giveni={T\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {Springer}%
+      }
+      \strng{namehash}{9a497128db448eba9bbb6e27b1ed57ed}
+      \strng{fullhash}{f23ccc5160c62c7866172335b2c76e11}
+      \strng{fullhashraw}{f23ccc5160c62c7866172335b2c76e11}
+      \strng{bibnamehash}{f23ccc5160c62c7866172335b2c76e11}
+      \strng{authorbibnamehash}{f23ccc5160c62c7866172335b2c76e11}
+      \strng{authornamehash}{9a497128db448eba9bbb6e27b1ed57ed}
+      \strng{authorfullhash}{f23ccc5160c62c7866172335b2c76e11}
+      \strng{authorfullhashraw}{f23ccc5160c62c7866172335b2c76e11}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{Medical image computing and computer-assisted intervention--MICCAI 2015: 18th international conference, Munich, Germany, October 5-9, 2015, proceedings, part III 18}
+      \field{title}{U-net: Convolutional networks for biomedical image segmentation}
+      \field{year}{2015}
+      \field{pages}{234\bibrangedash 241}
+      \range{pages}{8}
+    \endentry
+    \entry{neuralscene}{misc}{}{}
+      \name{author}{5}{}{%
+        {{hash=93c4a2b776cc893ccb2f86e35e82fcd7}{%
+           family={Hoeller},
+           familyi={H\bibinitperiod},
+           given={David},
+           giveni={D\bibinitperiod}}}%
+        {{hash=5ac29b212261fe3d27e4d51cf14a990e}{%
+           family={Rudin},
+           familyi={R\bibinitperiod},
+           given={Nikita},
+           giveni={N\bibinitperiod}}}%
+        {{hash=5e4df5f8edf2e9a622e7b5fa7d29ca06}{%
+           family={Choy},
+           familyi={C\bibinitperiod},
+           given={Christopher},
+           giveni={C\bibinitperiod}}}%
+        {{hash=d759f492243bb3ad5b49139f1d2f99c4}{%
+           family={Anandkumar},
+           familyi={A\bibinitperiod},
+           given={Animashree},
+           giveni={A\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{fullhash}{1137679766f9b74c70d67ba16405323f}
+      \strng{fullhashraw}{1137679766f9b74c70d67ba16405323f}
+      \strng{bibnamehash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authorbibnamehash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authornamehash}{ce497113d4d32317bc130896c392e0db}
+      \strng{authorfullhash}{1137679766f9b74c70d67ba16405323f}
+      \strng{authorfullhashraw}{1137679766f9b74c70d67ba16405323f}
+      \field{extraname}{3}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{eprintclass}{cs.RO}
+      \field{eprinttype}{arXiv}
+      \field{title}{Neural Scene Representation for Locomotion on Structured Terrain}
+      \field{year}{2022}
+      \verb{eprint}
+      \verb 2206.08077
+      \endverb
+      \verb{urlraw}
+      \verb https://arxiv.org/abs/2206.08077
+      \endverb
+      \verb{url}
+      \verb https://arxiv.org/abs/2206.08077
+      \endverb
+    \endentry
+    \entry{occludedelevation}{article}{}{}
+      \name{author}{5}{}{%
+        {{hash=5fdfec48afa8ffff78b36f7fb49be65d}{%
+           family={Stölzle},
+           familyi={S\bibinitperiod},
+           given={Maximilian},
+           giveni={M\bibinitperiod}}}%
+        {{hash=43b8c965de3f336787b148625e017986}{%
+           family={Miki},
+           familyi={M\bibinitperiod},
+           given={Takahiro},
+           giveni={T\bibinitperiod}}}%
+        {{hash=909e6e4193776a691ea0d8356c2d2511}{%
+           family={Gerdes},
+           familyi={G\bibinitperiod},
+           given={Levin},
+           giveni={L\bibinitperiod}}}%
+        {{hash=f85b8ff37a043f639c11f7bd7d596367}{%
+           family={Azkarate},
+           familyi={A\bibinitperiod},
+           given={Martin},
+           giveni={M\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \strng{namehash}{424f1f9d3b38a9b8be60b371a39d4436}
+      \strng{fullhash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{fullhashraw}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{bibnamehash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authorbibnamehash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authornamehash}{424f1f9d3b38a9b8be60b371a39d4436}
+      \strng{authorfullhash}{6ff99a491211ae934e8c74838c1ff30b}
+      \strng{authorfullhashraw}{6ff99a491211ae934e8c74838c1ff30b}
+      \field{extraname}{2}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{IEEE Robotics and Automation Letters}
+      \field{number}{2}
+      \field{title}{Reconstructing Occluded Elevation Information in Terrain Maps With Self-Supervised Learning}
+      \field{volume}{7}
+      \field{year}{2022}
+      \field{pages}{1697\bibrangedash 1704}
+      \range{pages}{8}
+      \verb{doi}
+      \verb 10.1109/LRA.2022.3141662
+      \endverb
+    \endentry
+    \entry{convgru}{article}{}{}
+      \name{author}{6}{}{%
+        {{hash=d61a7320076087871f94781f3db68d31}{%
+           family={Shi},
+           familyi={S\bibinitperiod},
+           given={Xingjian},
+           giveni={X\bibinitperiod}}}%
+        {{hash=692238df342ef0efb2a6a6ae35851aae}{%
+           family={Chen},
+           familyi={C\bibinitperiod},
+           given={Zhourong},
+           giveni={Z\bibinitperiod}}}%
+        {{hash=c8cf19241225247d6d07dbf8a516b8ed}{%
+           family={Wang},
+           familyi={W\bibinitperiod},
+           given={Hao},
+           giveni={H\bibinitperiod}}}%
+        {{hash=08526b4206cdff511b54e9b0678b1fd3}{%
+           family={Yeung},
+           familyi={Y\bibinitperiod},
+           given={Dit-Yan},
+           giveni={D\bibinithyphendelim Y\bibinitperiod}}}%
+        {{hash=3db7042923476bd37a80421e695adf20}{%
+           family={Wong},
+           familyi={W\bibinitperiod},
+           given={Wai-Kin},
+           giveni={W\bibinithyphendelim K\bibinitperiod}}}%
+        {{hash=86b1ddbb738e16ea8e51c3d0b4b7dc1d}{%
+           family={Woo},
+           familyi={W\bibinitperiod},
+           given={Wang-chun},
+           giveni={W\bibinithyphendelim c\bibinitperiod}}}%
+      }
+      \strng{namehash}{ca344925a375de90d96d9bea567d5feb}
+      \strng{fullhash}{8b02b86ce45584458de3247b387357c8}
+      \strng{fullhashraw}{8b02b86ce45584458de3247b387357c8}
+      \strng{bibnamehash}{8b02b86ce45584458de3247b387357c8}
+      \strng{authorbibnamehash}{8b02b86ce45584458de3247b387357c8}
+      \strng{authornamehash}{ca344925a375de90d96d9bea567d5feb}
+      \strng{authorfullhash}{8b02b86ce45584458de3247b387357c8}
+      \strng{authorfullhashraw}{8b02b86ce45584458de3247b387357c8}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Advances in neural information processing systems}
+      \field{title}{Convolutional LSTM network: A machine learning approach for precipitation nowcasting}
+      \field{volume}{28}
+      \field{year}{2015}
+    \endentry
+    \entry{gru}{article}{}{}
+      \name{author}{7}{}{%
+        {{hash=3da7501a79d9346572c7fd6e41b615df}{%
+           family={Cho},
+           familyi={C\bibinitperiod},
+           given={Kyunghyun},
+           giveni={K\bibinitperiod}}}%
+        {{hash=2835acd2493c54182c074a35cd04ad4d}{%
+           family={Van\bibnamedelima Merriënboer},
+           familyi={V\bibinitperiod\bibinitdelim M\bibinitperiod},
+           given={Bart},
+           giveni={B\bibinitperiod}}}%
+        {{hash=2adc0c92c308f233c731321d55efe58f}{%
+           family={Gulcehre},
+           familyi={G\bibinitperiod},
+           given={Caglar},
+           giveni={C\bibinitperiod}}}%
+        {{hash=6d80adec79a13a33e73215c5f46f1605}{%
+           family={Bahdanau},
+           familyi={B\bibinitperiod},
+           given={Dzmitry},
+           giveni={D\bibinitperiod}}}%
+        {{hash=6deedc795e51da1bc7fd6289ab321a48}{%
+           family={Bougares},
+           familyi={B\bibinitperiod},
+           given={Fethi},
+           giveni={F\bibinitperiod}}}%
+        {{hash=449689e8c1ced50f608244e3a96fe6d3}{%
+           family={Schwenk},
+           familyi={S\bibinitperiod},
+           given={Holger},
+           giveni={H\bibinitperiod}}}%
+        {{hash=40a8e4774982146adc2688546f54efb2}{%
+           family={Bengio},
+           familyi={B\bibinitperiod},
+           given={Yoshua},
+           giveni={Y\bibinitperiod}}}%
+      }
+      \strng{namehash}{9b1920db887fe0d658725c1e606b61f4}
+      \strng{fullhash}{f15ca920f15dc82592d8124096139969}
+      \strng{fullhashraw}{f15ca920f15dc82592d8124096139969}
+      \strng{bibnamehash}{9b1920db887fe0d658725c1e606b61f4}
+      \strng{authorbibnamehash}{9b1920db887fe0d658725c1e606b61f4}
+      \strng{authornamehash}{9b1920db887fe0d658725c1e606b61f4}
+      \strng{authorfullhash}{f15ca920f15dc82592d8124096139969}
+      \strng{authorfullhashraw}{f15ca920f15dc82592d8124096139969}
+      \field{sortinit}{4}
+      \field{sortinithash}{9381316451d1b9788675a07e972a12a7}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:1406.1078}
+      \field{title}{Learning phrase representations using RNN encoder-decoder for statistical machine translation}
+      \field{year}{2014}
+    \endentry
+    \entry{wildlocomotion}{article}{}{}
+      \name{author}{6}{}{%
+        {{hash=43b8c965de3f336787b148625e017986}{%
+           family={Miki},
+           familyi={M\bibinitperiod},
+           given={Takahiro},
+           giveni={T\bibinitperiod}}}%
+        {{hash=d333f9325f8f60f584e433bef783b3b3}{%
+           family={Lee},
+           familyi={L\bibinitperiod},
+           given={Joonho},
+           giveni={J\bibinitperiod}}}%
+        {{hash=8c6a64beba14091eba8c78ac2e5d2a2b}{%
+           family={Hwangbo},
+           familyi={H\bibinitperiod},
+           given={Jemin},
+           giveni={J\bibinitperiod}}}%
+        {{hash=812edb0a660a4d4d4bb47cc0641ba174}{%
+           family={Wellhausen},
+           familyi={W\bibinitperiod},
+           given={Lorenz},
+           giveni={L\bibinitperiod}}}%
+        {{hash=9025300f43a193cfed8e10e924f2a117}{%
+           family={Koltun},
+           familyi={K\bibinitperiod},
+           given={Vladlen},
+           giveni={V\bibinitperiod}}}%
+        {{hash=164607f9daa616a03bed0e2bf6531a8d}{%
+           family={Hutter},
+           familyi={H\bibinitperiod},
+           given={Marco},
+           giveni={M\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {American Association for the Advancement of Science}%
+      }
+      \strng{namehash}{dd6a19c34d0a3c6f5a59fa716b502edd}
+      \strng{fullhash}{53794f3785916e50b3d2933c553796ad}
+      \strng{fullhashraw}{53794f3785916e50b3d2933c553796ad}
+      \strng{bibnamehash}{53794f3785916e50b3d2933c553796ad}
+      \strng{authorbibnamehash}{53794f3785916e50b3d2933c553796ad}
+      \strng{authornamehash}{dd6a19c34d0a3c6f5a59fa716b502edd}
+      \strng{authorfullhash}{53794f3785916e50b3d2933c553796ad}
+      \strng{authorfullhashraw}{53794f3785916e50b3d2933c553796ad}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Science Robotics}
+      \field{number}{62}
+      \field{title}{Learning robust perceptive locomotion for quadrupedal robots in the wild}
+      \field{volume}{7}
+      \field{year}{2022}
+      \field{pages}{eabk2822}
+      \range{pages}{-1}
+    \endentry
+    \entry{adam}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=b6fbd171848aad4edf3925543f1f1522}{%
+           family={Kingma},
+           familyi={K\bibinitperiod},
+           given={Diederik\bibnamedelima P},
+           giveni={D\bibinitperiod\bibinitdelim P\bibinitperiod}}}%
+        {{hash=8aa66e8231cc2fdbe67aa4f18ca970c6}{%
+           family={Ba},
+           familyi={B\bibinitperiod},
+           given={Jimmy},
+           giveni={J\bibinitperiod}}}%
+      }
+      \strng{namehash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{fullhash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{fullhashraw}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{bibnamehash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{authorbibnamehash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{authornamehash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{authorfullhash}{a09df9f123146b8e2c7f1134c9496932}
+      \strng{authorfullhashraw}{a09df9f123146b8e2c7f1134c9496932}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{arXiv preprint arXiv:1412.6980}
+      \field{title}{Adam: A method for stochastic optimization}
+      \field{year}{2014}
+    \endentry
+    \entry{elevationmappinggpu}{inproceedings}{}{}
+      \name{author}{4}{}{%
+        {{hash=fdfed540d7ae5bbcf541673174634df7}{%
+           family={Vizzo},
+           familyi={V\bibinitperiod},
+           given={Ignacio},
+           giveni={I\bibinitperiod}}}%
+        {{hash=3d492bb26b0efcc34e07a669bbe2735d}{%
+           family={Guadagnino},
+           familyi={G\bibinitperiod},
+           given={Tiziano},
+           giveni={T\bibinitperiod}}}%
+        {{hash=3ac3ee498a8d6eefc3fad74646f2d659}{%
+           family={Behley},
+           familyi={B\bibinitperiod},
+           given={Jens},
+           giveni={J\bibinitperiod}}}%
+        {{hash=5d87e0c36213202151bff64fdd9346a3}{%
+           family={Stachniss},
+           familyi={S\bibinitperiod},
+           given={Cyrill},
+           giveni={C\bibinitperiod}}}%
+      }
+      \list{organization}{1}{%
+        {IEEE}%
+      }
+      \strng{namehash}{5ca76649ac68283198bf98c607fe9995}
+      \strng{fullhash}{f688247b2ff327dff3bb71f5f15373cd}
+      \strng{fullhashraw}{f688247b2ff327dff3bb71f5f15373cd}
+      \strng{bibnamehash}{f688247b2ff327dff3bb71f5f15373cd}
+      \strng{authorbibnamehash}{f688247b2ff327dff3bb71f5f15373cd}
+      \strng{authornamehash}{5ca76649ac68283198bf98c607fe9995}
+      \strng{authorfullhash}{f688247b2ff327dff3bb71f5f15373cd}
+      \strng{authorfullhashraw}{f688247b2ff327dff3bb71f5f15373cd}
+      \field{sortinit}{5}
+      \field{sortinithash}{20e9b4b0b173788c5dace24730f47d8c}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{booktitle}{2021 IEEE International Conference on Robotics and Automation (ICRA)}
+      \field{title}{Efficient continuous-time SLAM for 3D lidar-based online mapping}
+      \field{year}{2021}
+      \field{pages}{4691\bibrangedash 4697}
+      \range{pages}{7}
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+
