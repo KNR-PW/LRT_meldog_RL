@@ -21,3 +21,6 @@ bash -c 'source ~/.bashrc; eval "$(conda shell.bash hook)"; conda activate isaac
 *   **Env Configs:** `source/meldog_rl/envs/configs/`
 *   **Registered Envs:** `source/meldog_rl/envs/__init__.py`
 *   **Perception Models:** `source/meldog_rl/models/perception/`
+
+## 3. General Rules & Documentation
+*   **Manual Maintenance:** The file `manual.md` serves as the comprehensive user manual for this framework. You **MUST** update `manual.md` whenever you introduce new features, scripts, CLI tools, or make fundamental changes to how the repository is structured or used. Ensure the documentation stays perfectly in sync with the codebase.
