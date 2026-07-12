@@ -52,6 +52,9 @@ class MeldogEnv(DirectRLEnv):
         # Command resampling tracking
         self._command_time_left = torch.zeros(self.num_envs, device=self.device)
 
+        # Curriculum learning tracking (for terrain difficulty progression)
+        self._initial_robot_pos = torch.zeros(self.num_envs, 3, device=self.device)
+
         # Reward logging
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -356,6 +359,47 @@ class MeldogEnv(DirectRLEnv):
         # Reset command timer for resampled environments
         self._command_time_left[env_ids] = self.cfg.command_resample_time_s
 
+    def _update_terrain_curriculum(self, env_ids: torch.Tensor):
+        """Update terrain difficulty based on robot performance.
+
+        Robots that walk far enough progress to harder terrains.
+        Robots that don't meet the target distance move to easier terrains.
+
+        This implements the same logic as Isaac Lab's terrain_levels_vel curriculum.
+
+        Args:
+            env_ids: Environment indices being reset.
+        """
+        # Skip on first reset (no previous position to compare)
+        if torch.all(self._initial_robot_pos[env_ids] == 0):
+            return
+
+        # Calculate distance walked (XY plane only)
+        distance_walked = torch.norm(
+            self._robot.data.root_pos_w[env_ids, :2] - self._initial_robot_pos[env_ids, :2],
+            dim=1
+        )
+
+        # Check if terrain has a procedural generator (flat terrains often don't)
+        if getattr(self._terrain.cfg, "terrain_generator", None) is None:
+            return
+
+        # Get terrain size (assuming square terrains)
+        terrain_size = self._terrain.cfg.terrain_generator.size[0]
+
+        # Move to harder terrain if robot walked more than half the terrain size
+        move_up = distance_walked > (terrain_size / 2)
+
+        # Move to easier terrain if robot walked less than half the commanded distance
+        # Expected distance = commanded velocity * episode duration
+        commanded_velocity = torch.norm(self._commands[env_ids, :2], dim=1)
+        expected_distance = commanded_velocity * self.max_episode_length_s * 0.5
+        move_down = distance_walked < expected_distance
+        move_down = move_down & ~move_up  # Don't move down if already moving up
+
+        # Update terrain levels
+        self._terrain.update_env_origins(env_ids, move_up, move_down)
+
     def _reset_idx(self, env_ids: torch.Tensor | None):
         """Reset environments."""
         if env_ids is None or len(env_ids) == self.num_envs:
@@ -387,12 +431,25 @@ class MeldogEnv(DirectRLEnv):
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
+        # Update curriculum (terrain difficulty) based on performance
+        if self.cfg.enable_curriculum and hasattr(self._terrain, "update_env_origins"):
+            self._update_terrain_curriculum(env_ids)
+
+        # Store initial position for next curriculum update
+        self._initial_robot_pos[env_ids] = self._robot.data.root_pos_w[env_ids, :3]
+
         # Log episode rewards
         extras = {}
         for key in self._episode_sums.keys():
             episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
             extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
+
+        # Log curriculum progress (terrain difficulty level)
+        if hasattr(self._terrain, "terrain_levels"):
+            # Mean terrain level across all environments (matches Unitree's metric name)
+            mean_terrain_level = torch.mean(self._terrain.terrain_levels.float())
+            extras["Curriculum/terrain_levels"] = mean_terrain_level
 
         self.extras["log"] = {}
         self.extras["log"].update(extras)

@@ -1,0 +1,7 @@
+\babel@toc {english}{}\relax 
+\contentsline {table}{\numberline {1.1}{\ignorespaces Comparison of selected perception sensors\relax }}{13}{table.caption.7}%
+\contentsline {table}{\numberline {2.1}{\ignorespaces Comparison of quadruped robot physical properties (Sorted by Mass)\relax }}{16}{table.caption.8}%
+\contentsline {table}{\numberline {2.2}{\ignorespaces Comparison of simulation privileged data vs real-world measurements\relax }}{17}{table.caption.10}%
+\contentsline {table}{\numberline {2.3}{\ignorespaces Reward function components for locomotion policy training\relax }}{19}{table.caption.13}%
+\contentsline {table}{\numberline {2.4}{\ignorespaces Dataset structure and collected data modalities\relax }}{21}{table.caption.16}%
+\contentsline {table}{\numberline {2.5}{\ignorespaces Summary of perception model architectures and performance metrics\relax }}{28}{table.caption.27}%

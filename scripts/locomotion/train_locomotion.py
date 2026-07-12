@@ -64,6 +64,7 @@ import meldog_rl
 from meldog_rl import envs  # This registers the tasks
 from meldog_rl import agents
 from meldog_rl.utils import make_locomotion_log_dir
+from meldog_rl.utils.git_utils import save_git_metadata
 
 # Enable TF32 for faster training
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -164,6 +165,7 @@ def main():
     os.makedirs(os.path.join(log_dir, "params"), exist_ok=True)
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+    save_git_metadata(log_dir)
     
     # Train
     runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)

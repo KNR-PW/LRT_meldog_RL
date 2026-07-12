@@ -46,6 +46,7 @@ from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from meldog_rl.utils import make_perception_log_dir
+from meldog_rl.utils.git_utils import save_git_metadata
 from meldog_rl.models.perception import (
     HeightmapConvGRU,
     HeightmapAutoregressive,
@@ -147,6 +148,7 @@ def train_v5(args):
     terrain = extract_terrain_from_dataset(args.dataset)
     log_dir = make_perception_log_dir("v5", terrain)
     log_dir.mkdir(parents=True, exist_ok=True)
+    save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
     
     print(f"[INFO] Training V5 ConvGRU model")
@@ -364,6 +366,7 @@ def train_v6(args):
     terrain = extract_terrain_from_dataset(args.dataset)
     log_dir = make_perception_log_dir("v6", terrain)
     log_dir.mkdir(parents=True, exist_ok=True)
+    save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
     
     print(f"[INFO] Training V6 Autoregressive model")
