@@ -24,3 +24,10 @@ bash -c 'source ~/.bashrc; eval "$(conda shell.bash hook)"; conda activate isaac
 
 ## 3. General Rules & Documentation
 *   **Manual Maintenance:** The file `manual.md` serves as the comprehensive user manual for this framework. You **MUST** update `manual.md` whenever you introduce new features, scripts, CLI tools, or make fundamental changes to how the repository is structured or used. Ensure the documentation stays perfectly in sync with the codebase.
+
+## 4. Agentic Workflow & Shared Memory
+To enable seamless cross-agent collaboration (e.g., between Gemini and Claude) and provide version-controlled rationale for code changes, all AI planning, task tracking, and experiment results must be stored directly in the repository.
+
+*   **Active Tasks & Experiments:** Create tracking files directly in the `agentic/` directory. You must use descriptive names prepended with the current date, e.g., `YYYY-MM-DD_Task_descriptive_name.md` or `YYYY-MM-DD_Experiment_results.md`.
+*   **Archiving:** Once a task is finished or an experiment concludes, you **MUST** move the corresponding file into `agentic/archive/`.
+*   **Context Management:** When assessing the current state of the project, agents should read the active `.md` files in the root of `agentic/`. **DO NOT** indiscriminately read the contents of `agentic/archive/` as this will blow out your context window. Only read archived files if specifically instructed to review past historical data.

@@ -134,3 +134,15 @@ python scripts/locomotion/play_locomotion.py \
     --task Meldog-RL-Locomotion-Rough-Sim-v0 \
     --checkpoint releases/locomotion/v1.0-rough/model.pt
 ```
+
+---
+
+## 6. AI & Agentic Workflow
+This repository features built-in support for autonomous AI workflows (e.g., using Google Gemini or Claude). 
+
+All AI-driven planning, historical experiment logs, and active tasks are located in the `agentic/` directory.
+- `agentic/YYYY-MM-DD_Task_...md` (Active tasks and checklists)
+- `agentic/YYYY-MM-DD_Experiment_...md` (Completed experiment results)
+- `agentic/archive/` (Past completed tasks and historical experiments)
+
+If you are using an AI agent, it will automatically track its progress in this folder so that any other agent (or human) can pick up the context seamlessly.
