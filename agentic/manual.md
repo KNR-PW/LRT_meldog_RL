@@ -21,8 +21,8 @@ Perception is decoupled from Locomotion. Once a locomotion policy is trained, yo
 
 | Model Architecture | Code Implementation | Description |
 | :--- | :--- | :--- |
-| **V1 / V2 Base** | `HeightmapAutoregressive` | Standard U-Net / Deep Attention network for static frame reconstruction. |
-| **V3 Temporal** | `HeightmapConvGRU` | Adds memory states (ConvGRU) to build a "belief state" across multiple frames. |
+| **V5 Temporal** | `heightmap_v5` | Adds memory states (ConvGRU) to build a "belief state" across multiple frames. |
+| **V6 Autoregressive** | `heightmap_v6` | Standard U-Net / Deep Attention network for sequential coordinate reconstruction. |
 | **Baseline** | `SLAMBaseline` | Non-learned geometric baseline for comparison. |
 
 ---
@@ -82,14 +82,19 @@ python scripts/perception/collect_dataset.py \
     --num_samples 10000
 ```
 
-### B. Training Perception (`train_perception.py`)
-Trains one of the perception Neural Networks on the collected dataset.
+### B. Perception Training (`train_perception.py`)
+Trains the selected Perception model offline using the H5 dataset collected in step A.
 ```bash
 python scripts/perception/train_perception.py \
-    --dataset datasets/rough_terrain_data/ \
-    --model_type HeightmapConvGRU \
-    --epochs 50
+    --dataset datasets/PD_rough_2026-07-12_13-56-35_6e1677d-dirty/ \
+    --model heightmap_v5 \
+    --epochs 100 \
+    --workers 8 \
+    --batch_size 80 \
+    --seq_len 32
 ```
+> [!WARNING]
+> **Hardware Limits:** PyTorch multiprocessing overhead consumes massive amounts of System RAM. A configuration of `8 workers` and `80 batch size` (with `seq_len=32`) is highly stable and maximizes GPU utilization, but it hovers dangerously close to ~48GB of RAM. Machines with less than 64GB RAM may experience freezing or OOM crashes, particularly during the inter-epoch validation transition. If you experience crashes, drop to `4 workers` and `160 batch size`.
 
 ### C. SLAM Baseline Evaluation (`evaluate_slam.py`)
 Runs the non-learned geometric SLAM baseline for comparative evaluation.

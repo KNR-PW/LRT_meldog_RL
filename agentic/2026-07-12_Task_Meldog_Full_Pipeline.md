@@ -26,14 +26,14 @@
   - Command: `python scripts/perception/collect_dataset.py --task Meldog-RL-Dataset-FlatObs-v0 --num_envs 32 --max_steps 4000`
 - `[x]` Collect `Dataset-Rough`
   - Command: `python scripts/perception/collect_dataset.py --task Meldog-RL-Dataset-Rough-v0 --num_envs 32 --max_steps 4000`
-- `[/]` Collect `Dataset-RoughObs`
+- `[x]` Collect `Dataset-RoughObs`
   - Command: `python scripts/perception/collect_dataset.py --task Meldog-RL-Dataset-RoughObs-v0 --num_envs 32 --max_steps 4000`
 - `[ ]` Visual verification of `preview.mp4` for each dataset
 
 ## Phase 4: Sequential Perception Training
-- `[ ]` Train V5 (ConvGRU) and V6 (Autoregressive) on `FlatObs`
-- `[ ]` Train V5 and V6 on `Rough`
-- `[ ]` Train V5 and V6 on `RoughObs`
+- `[/]` Train V5 (ConvGRU) and V6 (Autoregressive) on `FlatObs`
+- `[/]` Train V5 and V6 on `Rough`
+- `[/]` Train V5 and V6 on `RoughObs`
 
 ## Phase 5: Complete SLAM & Perception Eval
 - `[ ]` Evaluate V5/V6 for all terrains (`evaluate_perception.py`)
@@ -41,4 +41,4 @@
 - `[ ]` Test Perception inference over Locomotion in Sim and Real environments
 
 ## Open Maintenance Tasks
-- `[ ]` Fix `manual.md` to reflect V5/V6 perception naming scheme
+- `[x]` Fix `manual.md` to reflect V5/V6 perception naming scheme
