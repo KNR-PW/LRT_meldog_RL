@@ -36,7 +36,9 @@ class FlatSimCfg(BaseMeldogEnvCfg):
     )
     
     # Override base config
+    enable_curriculum = False
     feet_air_time = 0.5
+    action_scale = 0.3
 
     lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
     yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75

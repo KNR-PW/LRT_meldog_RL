@@ -100,7 +100,7 @@ MELDOG_CFG = ArticulationCfg(
             saturation_effort=35.0,
             stiffness=40.0,
             damping=1.0,
-            friction=0.0312,
+            #friction=0.0312,
             velocity_limit=18.9,
         ),
     },
@@ -312,6 +312,9 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     # Command generation settings
     command_resample_time_s = 10.0  # Resample commands every 10 seconds (500 steps at 50Hz)
     standing_env_fraction = 0.02    # 2% of environments get zero velocity commands
+
+    # Curriculum learning settings
+    enable_curriculum = True        # Enable terrain curriculum (increases difficulty based on performance)
     
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(

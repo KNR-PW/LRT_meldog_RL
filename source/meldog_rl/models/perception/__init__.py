@@ -7,8 +7,9 @@ from .projector import DepthProjector, euler_from_quat
 from .common import ConvGRU, ConvGRUCell, HybridTerrainLoss, augment_sequence, augment_sequence_v6
 from .heightmap_convgru import HeightmapConvGRU
 from .heightmap_autoreg import HeightmapAutoregressive, transform_height_map_with_mask
+from .slam_baseline import SLAMBaseline
 
-# TODO: VoxelSparse, SLAMBaseline
+# TODO: VoxelSparse
 
 __all__ = [
     # Projection
@@ -17,8 +18,8 @@ __all__ = [
     # Models
     "HeightmapConvGRU",
     "HeightmapAutoregressive",
+    "SLAMBaseline",
     # "VoxelSparse",
-    # "SLAMBaseline",
     # Common
     "ConvGRU",
     "ConvGRUCell", 

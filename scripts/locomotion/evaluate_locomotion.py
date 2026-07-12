@@ -94,7 +94,7 @@ def main():
     
     # Evaluation loop
     with torch.inference_mode():
-        while total_episodes < args_cli.num_episodes and simulation_app.is_running():
+        while total_episodes < args_cli.num_episodes:
             actions = policy(obs)
             obs, _, dones, infos = env.step(actions)
             current_lengths += 1
@@ -149,6 +149,7 @@ def main():
     else:
         print("\n[ANALYSIS] Policy looks stable!")
     
+    sys.stdout.flush()
     env.close()
 
 
