@@ -212,7 +212,7 @@ def main():
             env.close()
             return
         
-        while simulation_app.is_running():
+        while True:
             with torch.inference_mode():
                 actions = policy(obs)
                 obs, rewards, dones, extras = env.step(actions)
