@@ -38,6 +38,14 @@ FOOT_LABELS = ["FL", "FR", "RL", "RR"]
 PHASE_LABELS = ["FR", "RL", "RR"]  # offsets relative to FL
 GRAVITY = 9.81
 
+# Default knee (K) joint angle from base_cfg init_state (T=0.0, H=-0.6, K=1.3 rad).
+# Used as the rest reference for the swing-phase knee-excursion ("curling") metric.
+DEFAULT_KNEE_ANGLE = 1.3
+# Documented DOF-grouped joint order fallback: joint_names group by DOF type not by
+# leg (T[0:4], H[4:8], K[8:12], each ordered LF,LR,RF,RR). K joints mapped to feet in
+# FL,FR,RL,RR order are therefore LFK(8), RFK(10), LRK(9), RRK(11).
+K_JOINT_IDX_FALLBACK = [8, 10, 9, 11]
+
 # Minimum usable segment length (steps) for continuous metrics.
 MIN_SEGMENT_LEN = 25
 
@@ -215,6 +223,52 @@ def contact_onsets(contact_bool: np.ndarray):
     return np.where((c[1:] == 1) & (c[:-1] == 0))[0] + 1
 
 
+def _decode_str_list(v):
+    """Decode an h5 string-attr (bytes / numpy str array) to a plain list of str."""
+    if v is None:
+        return None
+    return [x.decode() if isinstance(x, bytes) else str(x) for x in np.atleast_1d(v)]
+
+
+def _canonical_foot_from_joint(name: str) -> str:
+    """Foot label (FL/FR/RL/RR) for a joint named ``<side><end><type>_joint``.
+
+    e.g. ``LFK_joint`` -> front-left -> ``FL``; ``RRK_joint`` -> rear-right -> ``RR``.
+    Mirrors the recorder's ``canonical_foot_label`` so K joints map onto the same
+    canonicalized FL,FR,RL,RR foot order used everywhere else in the analyzer.
+    """
+    base = name.split("_")[0]
+    side = base[0].upper()  # L / R
+    end = base[1].upper()   # F / R
+    fb = "F" if end == "F" else "R"
+    return fb + side
+
+
+def k_joint_indices_by_foot(joint_names):
+    """Map the four knee (K) joints onto feet, returning [FL, FR, RL, RR] indices.
+
+    Returns None if the names do not resolve cleanly to four K joints (caller falls
+    back to the documented DOF-grouped order).
+    """
+    if not joint_names:
+        return None
+    kmap = {}
+    for i, n in enumerate(joint_names):
+        base = n.split("_")[0]
+        if len(base) >= 3 and base[-1].upper() == "K":
+            kmap[_canonical_foot_from_joint(n)] = i
+    try:
+        return [kmap[label] for label in FOOT_LABELS]
+    except KeyError:
+        return None
+
+
+def resolve_k_idx(attrs):
+    """K-joint indices in FL,FR,RL,RR order, from h5 joint_names attr (or fallback)."""
+    idx = k_joint_indices_by_foot(_decode_str_list(attrs.get("joint_names")))
+    return idx if idx is not None else list(K_JOINT_IDX_FALLBACK)
+
+
 def detect_period_steps(sig: np.ndarray, dt: float):
     """Fundamental period (in steps) of a binary contact signal via autocorrelation.
 
@@ -322,8 +376,11 @@ def survival_stats(dones, time_outs):
 # ---------------------------------------------------------------------------
 # Per-episode metrics
 # ---------------------------------------------------------------------------
-def episode_metrics(data, seg, effort_limit, vel_limit, dt):
-    """Compute all per-episode metrics for one contiguous segment."""
+def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
+    """Compute all per-episode metrics for one contiguous segment.
+
+    ``k_idx`` maps feet FL,FR,RL,RR onto knee-joint columns (see resolve_k_idx).
+    """
     e, s, end = seg["env"], seg["start"], seg["end"]
     m = {}
 
@@ -332,10 +389,12 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt):
     cmd = data["commands"][s:end, e]             # (L,3)
     quat = data["root_quat_w"][s:end, e]         # (L,4)
     pos = data["root_pos_w"][s:end, e]           # (L,3)
+    jpos = data["joint_pos"][s:end, e]           # (L,12)
     jvel = data["joint_vel"][s:end, e]           # (L,12)
     torque = data["applied_torque"][s:end, e]    # (L,12)
     act = data["actions"][s:end, e]              # (L,12)
     fforce = data["foot_forces_w"][s:end, e]     # (L,4,3)
+    fpos = data["foot_pos_w"][s:end, e]          # (L,4,3)
     fvel = data["foot_vel_w"][s:end, e]          # (L,4,3)
 
     thr = float(data["_attrs"].get("contact_force_threshold", 1.0))
@@ -374,29 +433,64 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt):
         m["phase_offset"] = None
 
     # --- slip (horizontal foot speed while in contact) ---
+    # Touchdown/liftoff frames carry contact-transition velocity artifacts that
+    # inflate mean slip (D2 calibration: eye saw no slip, metric read high). The
+    # banded value ``slip_mean_vel`` excludes the first & last sample of every
+    # contact phase; ``slip_mean_vel_raw`` keeps the old all-in-contact value.
     hspeed = np.linalg.norm(fvel[:, :, :2], axis=-1)  # (L,4)
     in_contact = contact
-    if in_contact.any():
-        m["slip_mean_vel"] = float(np.mean(hspeed[in_contact]))
-    else:
-        m["slip_mean_vel"] = None
-    phase_slips = []
+    m["slip_mean_vel_raw"] = float(np.mean(hspeed[in_contact])) if in_contact.any() else None
+
+    interior = np.zeros_like(contact)  # (L,4) bool: contact minus transition frames
+    phase_slips, phase_slips_raw = [], []
     for fi in range(4):
         for (rs, re) in contact_runs(contact[:, fi]):
-            phase_slips.append(float(np.sum(hspeed[rs:re, fi]) * dt))
+            phase_slips_raw.append(float(np.sum(hspeed[rs:re, fi]) * dt))
+            if re - rs > 2:  # need >=1 interior sample after dropping touchdown+liftoff
+                interior[rs + 1:re - 1, fi] = True
+                phase_slips.append(float(np.sum(hspeed[rs + 1:re - 1, fi]) * dt))
+    m["slip_mean_vel"] = float(np.mean(hspeed[interior])) if interior.any() else None
     m["slip_dist_per_step"] = float(np.mean(phase_slips)) if phase_slips else None
+    m["slip_dist_per_step_raw"] = float(np.mean(phase_slips_raw)) if phase_slips_raw else None
 
     # --- impact (per touchdown) ---
+    # Peak force prefers the per-step substep maximum (feet_forces_max, magnitude
+    # over net_forces_w_history) when the recorder provides it; otherwise it falls
+    # back to the policy-rate snapshot magnitude (under-samples true transients).
+    fmag_peak = data["feet_forces_max"][s:end, e] if "feet_forces_max" in data else fmag
     peak_bw, td_vel = [], []
     for fi in range(4):
         runs = contact_runs(contact[:, fi])
         onsets = set(contact_onsets(contact[:, fi]).tolist())
         for (rs, re) in runs:
             if rs in onsets:  # genuine touchdown (not contact at t=0)
-                peak_bw.append(float(np.max(fmag[rs:re, fi]) / (mass * GRAVITY)))
+                peak_bw.append(float(np.max(fmag_peak[rs:re, fi]) / (mass * GRAVITY)))
                 td_vel.append(float(abs(fvel[rs, fi, 2])))
     m["peak_force_bw"] = float(np.mean(peak_bw)) if peak_bw else None
     m["touchdown_vel"] = float(np.mean(td_vel)) if td_vel else None
+
+    # --- swing-phase kinematics (trend metrics, per foot FL,FR,RL,RR) ---
+    # apex_height: per swing (non-contact phase) max foot-z rise above liftoff z.
+    # knee_excursion: per swing max |K-joint angle - default|, a "limb curling"
+    # detector. Both averaged over the episode's genuine swings (must start from a
+    # real liftoff, i.e. preceded by contact -> swing run start > 0).
+    foot_z = fpos[:, :, 2]  # (L,4) world z
+    swing_apex = np.full(4, np.nan)
+    swing_knee = np.full(4, np.nan)
+    for fi in range(4):
+        apex_vals, knee_vals = [], []
+        for (rs, re) in contact_runs(~contact[:, fi]):
+            if rs == 0 or re - rs < 2:  # skip pre-existing air phase / too-short swings
+                continue
+            apex_vals.append(float(np.max(foot_z[rs:re, fi]) - foot_z[rs, fi]))
+            kj = jpos[rs:re, k_idx[fi]]
+            knee_vals.append(float(np.max(np.abs(kj - DEFAULT_KNEE_ANGLE))))
+        if apex_vals:
+            swing_apex[fi] = float(np.mean(apex_vals))
+        if knee_vals:
+            swing_knee[fi] = float(np.mean(knee_vals))
+    m["swing_apex"] = swing_apex
+    m["swing_knee"] = swing_knee
 
     # --- smoothness ---
     if len(act) > 1:
@@ -427,8 +521,10 @@ def build_metrics(data, segments):
     effort_limit = float(data["_attrs"]["joint_effort_limit"])
     vel_limit = float(data["_attrs"]["joint_velocity_limit"])
 
+    k_idx = resolve_k_idx(data["_attrs"])
+
     n_term, n_surv = survival_stats(data["dones"], data["time_outs"])
-    per_ep = [episode_metrics(data, seg, effort_limit, vel_limit, dt) for seg in segments]
+    per_ep = [episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx) for seg in segments]
 
     def col(key):
         return [ep[key] for ep in per_ep]
@@ -463,11 +559,18 @@ def build_metrics(data, segments):
         },
         "slip": {
             "mean_vel": aggregate(col("slip_mean_vel")),
+            "mean_vel_raw": aggregate(col("slip_mean_vel_raw")),
             "dist_per_step": aggregate(col("slip_dist_per_step")),
+            "dist_per_step_raw": aggregate(col("slip_dist_per_step_raw")),
         },
         "impact": {
             "peak_force_bw": aggregate(col("peak_force_bw")),
             "touchdown_vel": aggregate(col("touchdown_vel")),
+        },
+        "swing": {
+            "foot_order": "FL,FR,RL,RR",
+            "apex_height": aggregate_array(col("swing_apex"), 4),
+            "knee_excursion": aggregate_array(col("swing_knee"), 4),
         },
         "smooth": {
             "action_rate": aggregate(col("action_rate")),
@@ -503,6 +606,7 @@ def build_metrics(data, segments):
         "num_envs": int(a("num_envs", data["dones"].shape[1])),
         "num_steps": int(a("num_steps", data["dones"].shape[0])),
         "robot_mass": a("robot_mass"),
+        "impact_force_source": "substep_max" if "feet_forces_max" in data else "snapshot",
     }
     flags = compute_flags(meta, loco)
     return {"meta": meta, "locomotion": loco, "flags": flags}
@@ -637,6 +741,41 @@ def plot_actions(data, seg, dt, out_path):
     plt.close(fig)
 
 
+def plot_swing(data, seg, dt, out_path, k_idx):
+    """Per-foot swing apex height and knee excursion (trend metrics) for one segment."""
+    e, s, end = seg["env"], seg["start"], seg["end"]
+    thr = float(data["_attrs"].get("contact_force_threshold", 1.0))
+    contact = np.linalg.norm(data["foot_forces_w"][s:end, e], axis=-1) > thr  # (L,4)
+    foot_z = data["foot_pos_w"][s:end, e, :, 2]  # (L,4)
+    jpos = data["joint_pos"][s:end, e]           # (L,12)
+
+    apex_means, knee_means = [], []
+    for fi in range(4):
+        apex_vals, knee_vals = [], []
+        for (rs, re) in contact_runs(~contact[:, fi]):
+            if rs == 0 or re - rs < 2:
+                continue
+            apex_vals.append(float(np.max(foot_z[rs:re, fi]) - foot_z[rs, fi]))
+            knee_vals.append(float(np.max(np.abs(jpos[rs:re, k_idx[fi]] - DEFAULT_KNEE_ANGLE))))
+        apex_means.append(float(np.mean(apex_vals)) if apex_vals else 0.0)
+        knee_means.append(float(np.mean(knee_vals)) if knee_vals else 0.0)
+
+    colors = ["#1b7837", "#762a83", "#2166ac", "#b2182b"]
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.8))
+    axes[0].bar(FOOT_LABELS, apex_means, color=colors)
+    axes[0].set_ylabel("Swing apex height (m)")
+    axes[0].set_title("Apex: max foot-z rise above liftoff")
+    axes[0].grid(True, axis="y", alpha=0.3)
+    axes[1].bar(FOOT_LABELS, knee_means, color=colors)
+    axes[1].set_ylabel("max |K - default| (rad)")
+    axes[1].set_title(f"Knee excursion (curling; K default {DEFAULT_KNEE_ANGLE:g})")
+    axes[1].grid(True, axis="y", alpha=0.3)
+    fig.suptitle(f"Swing kinematics  (env {e}, trend metrics)")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------------------
 # report.md
 # ---------------------------------------------------------------------------
@@ -685,7 +824,8 @@ def write_report(metrics, out_path):
     lines.append("## Metrics (mean +/- std across episodes)\n")
     lines.append("Flags vs `agentic/benchmarks.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
                  "(advisory — attitude/impact bands assume the flat/benchmark scenario). "
-                 "Trend metrics (smooth.*) and un-banded rows carry no flag.\n")
+                 "Trend metrics (smooth.*, swing.*) and un-banded rows (marked `trend`) carry "
+                 "no flag.\n")
     lines.append("| metric | value | flag |")
     lines.append("|---|---|---|")
     lines.append(f"| tracking.lin_err (vx,vy) | {fmt(L['tracking']['lin_err'], unit=' m/s')} | {fl('tracking.lin_err')} |")
@@ -701,17 +841,20 @@ def write_report(metrics, out_path):
     lines.append(f"| gait.phase_offset [FR,RL,RR] | {fmt_array(L['gait']['phase_offset'], unit=' cyc')} | {fl('gait.phase_offset')} |")
     lines.append(f"| gait.stride_freq | {fmt(L['gait']['stride_freq'], unit=' Hz')} | {fl('gait.stride_freq')} |")
     lines.append(f"| gait.cycle_detected_frac | {L['gait']['cycle_detected_frac']} |  |")
-    lines.append(f"| slip.mean_vel | {fmt(L['slip']['mean_vel'], unit=' m/s')} | {fl('slip.mean_vel')} |")
+    lines.append(f"| slip.mean_vel (transition-filtered) | {fmt(L['slip']['mean_vel'], unit=' m/s')} | {fl('slip.mean_vel')} |")
+    lines.append(f"| slip.mean_vel_raw (unfiltered) | {fmt(L['slip']['mean_vel_raw'], unit=' m/s')} | trend |")
     lines.append(f"| slip.dist_per_step | {fmt(L['slip']['dist_per_step'], unit=' m')} |  |")
-    lines.append(f"| impact.peak_force_bw | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | {fl('impact.peak_force_bw')} |")
+    lines.append(f"| impact.peak_force_bw ({meta.get('impact_force_source', 'snapshot')}) | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | {fl('impact.peak_force_bw')} |")
     lines.append(f"| impact.touchdown_vel | {fmt(L['impact']['touchdown_vel'], unit=' m/s')} | {fl('impact.touchdown_vel')} |")
+    lines.append(f"| swing.apex_height [FL,FR,RL,RR] | {fmt_array(L['swing']['apex_height'], unit=' m')} | trend |")
+    lines.append(f"| swing.knee_excursion [FL,FR,RL,RR] | {fmt_array(L['swing']['knee_excursion'], unit=' rad')} | trend |")
     lines.append(f"| smooth.action_rate | {fmt(L['smooth']['action_rate'])} |  |")
     lines.append(f"| smooth.joint_acc | {fmt(L['smooth']['joint_acc'], unit=' rad/s^2')} |  |")
     lines.append(f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |")
     lines.append(f"| actuator.vel_sat_pct | {fmt(L['actuator']['vel_sat_pct'], unit=' %')} | {fl('actuator.vel_sat_pct')} |")
     lines.append(f"| energy.cost_of_transport | {fmt(L['energy']['cost_of_transport'])} | {fl('energy.cost_of_transport')} |")
     lines.append("\n## Plots\n")
-    for p in ("gait_diagram", "tracking", "attitude", "actions"):
+    for p in ("gait_diagram", "tracking", "attitude", "actions", "swing"):
         lines.append(f"![{p}](plots/{p}.png)\n")
 
     out_path.write_text("\n".join(lines))
@@ -771,6 +914,7 @@ def main():
     plot_tracking(data, seg, dt, plots_dir / "tracking.png")
     plot_attitude(data, seg, dt, plots_dir / "attitude.png")
     plot_actions(data, seg, dt, plots_dir / "actions.png")
+    plot_swing(data, seg, dt, plots_dir / "swing.png", resolve_k_idx(data["_attrs"]))
     print(f"[INFO] Wrote plots to {plots_dir}")
 
     write_report(metrics, out_dir / "report.md")

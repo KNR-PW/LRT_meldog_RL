@@ -221,7 +221,7 @@ def main():
         rec = {k: [] for k in (
             "root_pos_w", "root_quat_w", "root_lin_vel_b", "root_ang_vel_b",
             "joint_pos", "joint_vel", "applied_torque", "actions", "commands",
-            "foot_forces_w", "foot_pos_w", "foot_vel_w",
+            "foot_forces_w", "feet_forces_max", "foot_pos_w", "foot_vel_w",
             "dones", "time_outs", "terrain_levels", "terrain_types",
         )}
 
@@ -279,6 +279,18 @@ def main():
                 rec["commands"].append(raw_env.commands.cpu().numpy())
                 rec["foot_forces_w"].append(
                     raw_env._contact_sensor.data.net_forces_w[:, feet_sensor_ids].cpu().numpy())
+                # Substep-max contact force magnitude per foot (peak transient the
+                # policy-rate snapshot above misses). net_forces_w_history is
+                # (E, history_len, nbodies, 3); max the per-substep magnitude over
+                # the history dim -> (E, 4). See impact.peak_force_bw in the analyzer.
+                rec["feet_forces_max"].append(
+                    torch.max(
+                        torch.norm(
+                            raw_env._contact_sensor.data.net_forces_w_history[:, :, feet_sensor_ids],
+                            dim=-1,
+                        ),
+                        dim=1,
+                    )[0].cpu().numpy())
                 rec["foot_pos_w"].append(
                     raw_env._robot.data.body_pos_w[:, feet_robot_ids].cpu().numpy())
                 rec["foot_vel_w"].append(
@@ -373,6 +385,8 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
     foot_forces_w = stack("foot_forces_w")[:, :, sensor_perm, :]
     foot_pos_w = stack("foot_pos_w")[:, :, robot_perm, :]
     foot_vel_w = stack("foot_vel_w")[:, :, robot_perm, :]
+    # Substep-max force magnitude: (T, E, 4) reordered by the sensor permutation.
+    feet_forces_max = stack("feet_forces_max")[:, :, sensor_perm]
 
     T, E = root_pos_w.shape[0], root_pos_w.shape[1]
 
@@ -405,6 +419,7 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
         f.create_dataset("actions", data=actions, **gzip)
         f.create_dataset("commands", data=commands, **gzip)
         f.create_dataset("foot_forces_w", data=foot_forces_w, **gzip)
+        f.create_dataset("feet_forces_max", data=feet_forces_max, **gzip)
         f.create_dataset("foot_pos_w", data=foot_pos_w, **gzip)
         f.create_dataset("foot_vel_w", data=foot_vel_w, **gzip)
         f.create_dataset("dones", data=dones, **gzip)
