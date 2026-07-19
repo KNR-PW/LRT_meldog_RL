@@ -2,7 +2,13 @@
 # Copyright (c) 2022-2025, Meldog Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Evaluate perception model with 3D visualization and video recording."""
+"""Evaluate perception (learned model OR non-learned SLAM baseline).
+
+Runs a locomotion policy in a camera-enabled Dataset task, reconstructs the height
+map with either a learned model (--method model, V5/V6) or a SLAM baseline
+(--method slam, legacy shift-and-composite or world-frame elevation mapping),
+records eval.mp4 and dumps data.h5 for offline analysis (analyze_perception.py).
+"""
 
 import argparse
 import os
@@ -26,13 +32,17 @@ def str2bool(v):
 
 
 # Arguments
-parser = argparse.ArgumentParser(description="Evaluate perception model for Meldog.")
+parser = argparse.ArgumentParser(description="Evaluate perception (model or SLAM baseline) for Meldog.")
 parser.add_argument("--task", type=str, default="Meldog-RL-Dataset-Rough-v0", help="Task with cameras enabled.")
 parser.add_argument("--num_envs", type=int, default=8, help="Number of parallel robots.")
 parser.add_argument("--locomotion_checkpoint", type=str, required=True, help="Locomotion policy checkpoint.")
 parser.add_argument("--perception_checkpoint", type=str, default=None, help="Perception model checkpoint.")
 parser.add_argument("--video_length", type=int, default=1000, help="Recording length in steps.")
-parser.add_argument("--model", type=str, default="v5", choices=["v5", "v6"], help="Model type.")
+parser.add_argument("--method", type=str, default="model", choices=["model", "slam"],
+                    help="Reconstruction method: learned model or non-learned SLAM baseline.")
+parser.add_argument("--model", type=str, default="v5", choices=["v5", "v6"], help="Model type (--method model).")
+parser.add_argument("--slam_variant", type=str, default="elevation", choices=["legacy", "elevation"],
+                    help="SLAM baseline variant (--method slam).")
 
 # Visualization options
 parser.add_argument("--vis_model", type=str2bool, default=True, help="Visualize model prediction as 3D points.")
@@ -63,8 +73,15 @@ from rsl_rl.runners import OnPolicyRunner
 
 import meldog_rl
 from meldog_rl import envs, agents
-from meldog_rl.models.perception import HeightmapConvGRU, HeightmapAutoregressive, DepthProjector
+from meldog_rl.models.perception import (
+    DepthProjector,
+    ElevationMapper,
+    HeightmapAutoregressive,
+    HeightmapConvGRU,
+    SLAMBaseline,
+)
 from meldog_rl.utils import make_evaluation_dir
+from meldog_rl.utils.git_utils import get_git_suffix
 
 MAP_SIZE = 40
 MAP_RES = 0.05
@@ -109,26 +126,50 @@ def process_image(img_tensor, title, colormap=cv2.COLORMAP_JET, is_depth=True):
     return resized
 
 
+def _draw_colorbar(img, x0, is_diff):
+    """Draw a vertical colorbar + min/max labels showing the fixed height/error scale.
+
+    Height panels use VIRIDIS clipped to [-0.5, +0.5] m; difference panels use HOT
+    clipped to [0, 0.2] m. Top of the bar = max value, bottom = min value.
+    """
+    h = img.shape[0]
+    bar_top, bar_bot = 40, h - 20
+    bar_w = 12
+    grad = np.linspace(255, 0, bar_bot - bar_top).astype(np.uint8).reshape(-1, 1)
+    grad = np.repeat(grad, bar_w, axis=1)
+    cmap = cv2.COLORMAP_HOT if is_diff else cv2.COLORMAP_VIRIDIS
+    img[bar_top:bar_bot, x0:x0 + bar_w] = cv2.applyColorMap(grad, cmap)
+
+    top_lbl, bot_lbl = ("0.2m", "0.0m") if is_diff else ("+0.5m", "-0.5m")
+    for txt, y in [(top_lbl, bar_top - 5), (bot_lbl, bar_bot + 15)]:
+        cv2.putText(img, txt, (x0 - 6, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 3)
+        cv2.putText(img, txt, (x0 - 6, y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+    return img
+
+
 def process_map_centered(map_tensor, title, is_diff=False):
     """Process heightmap for video frame with centered display."""
     data = map_tensor.squeeze().cpu().numpy()
-    
+
     if is_diff:
         norm = (np.clip(data / 0.2, 0.0, 1.0) * 255.0).astype(np.uint8)
         color_img = cv2.applyColorMap(norm, cv2.COLORMAP_HOT)
     else:
         norm = (np.clip((data + 0.5) / 1.0, 0.0, 1.0) * 255.0).astype(np.uint8)
         color_img = cv2.applyColorMap(norm, cv2.COLORMAP_VIRIDIS)
-    
-    square_size = TARGET_H 
+
+    square_size = TARGET_H
     resized_square = cv2.resize(color_img, (square_size, square_size), interpolation=cv2.INTER_NEAREST)
     pad_total = TARGET_W - square_size
     pad_left = pad_total // 2
     pad_right = pad_total - pad_left
     final_img = cv2.copyMakeBorder(resized_square, 0, 0, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0,0,0])
-    
+
     cv2.putText(final_img, title, (pad_left + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
     cv2.putText(final_img, title, (pad_left + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+    # Fixed-scale legend in the right padding region.
+    _draw_colorbar(final_img, pad_left + square_size + 12, is_diff)
     return final_img
 
 
@@ -166,46 +207,56 @@ def main():
     
     # Create depth projector
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
-    
-    # Load model config from checkpoint if available
-    gru_hidden = args_cli.gru_hidden
-    gru_layers = args_cli.gru_layers
-    
-    if args_cli.perception_checkpoint:
-        checkpoint = torch.load(args_cli.perception_checkpoint, map_location=env.device, weights_only=False)
-        if isinstance(checkpoint, dict) and 'config' in checkpoint:
-            saved_config = checkpoint['config']
-            gru_hidden = saved_config.get('gru_hidden', gru_hidden)
-            gru_layers = saved_config.get('gru_layers', gru_layers)
-            print(f"Detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
-    
-    # Create model
-    if args_cli.model == "v5":
-        model = HeightmapConvGRU(
-            gru_hidden=gru_hidden,
-            gru_layers=gru_layers
-        ).to(env.device)
+
+    model = None
+    slam = None
+    if args_cli.method == "slam":
+        slam_cls = SLAMBaseline if args_cli.slam_variant == "legacy" else ElevationMapper
+        slam = slam_cls(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
+        slam.reset(args_cli.num_envs)
+        perc_desc = f"slam-{args_cli.slam_variant}"
+        print(f"SLAM baseline: {args_cli.slam_variant}")
     else:
-        model = HeightmapAutoregressive().to(env.device)
-    
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model parameters: {n_params:,}")
+        perc_desc = args_cli.model
+        # Load model config from checkpoint if available
+        gru_hidden = args_cli.gru_hidden
+        gru_layers = args_cli.gru_layers
 
-    model.eval()
+        if args_cli.perception_checkpoint:
+            checkpoint = torch.load(args_cli.perception_checkpoint, map_location=env.device, weights_only=False)
+            if isinstance(checkpoint, dict) and 'config' in checkpoint:
+                saved_config = checkpoint['config']
+                gru_hidden = saved_config.get('gru_hidden', gru_hidden)
+                gru_layers = saved_config.get('gru_layers', gru_layers)
+                print(f"Detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
 
-    if args_cli.perception_checkpoint:
-        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-            model.load_state_dict(checkpoint["model_state_dict"])
-            epoch = checkpoint.get('epoch', 'unknown')
-            print(f"Loaded perception model from epoch {epoch}")
+        # Create model
+        if args_cli.model == "v5":
+            model = HeightmapConvGRU(
+                gru_hidden=gru_hidden,
+                gru_layers=gru_layers
+            ).to(env.device)
         else:
-            model.load_state_dict(checkpoint)
-            print("Loaded perception model")
-    else:
-        print("Warning: No perception checkpoint, using untrained model")
-    
+            model = HeightmapAutoregressive().to(env.device)
+
+        n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Model parameters: {n_params:,}")
+
+        model.eval()
+
+        if args_cli.perception_checkpoint:
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                model.load_state_dict(checkpoint["model_state_dict"])
+                epoch = checkpoint.get('epoch', 'unknown')
+                print(f"Loaded perception model from epoch {epoch}")
+            else:
+                model.load_state_dict(checkpoint)
+                print("Loaded perception model")
+        else:
+            print("Warning: No perception checkpoint, using untrained model")
+
     # Output directory
-    save_dir = make_evaluation_dir("perception", args_cli.model)
+    save_dir = make_evaluation_dir("perception", perc_desc)
     save_dir.mkdir(parents=True, exist_ok=True)
     
     video_path = save_dir / "eval.mp4"
@@ -219,8 +270,8 @@ def main():
     )
     footer_img = create_footer_panel(
         args_cli.locomotion_checkpoint,
-        args_cli.perception_checkpoint,
-        args_cli.model,
+        args_cli.perception_checkpoint if args_cli.method == "model" else perc_desc,
+        perc_desc,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     )
 
@@ -263,7 +314,7 @@ def main():
             "depth_front": [], "depth_rear": [], "depth_left": [], "depth_right": [],
             "gt_height": [], "pred_height": [], "sparse_height": [], "occlusion_mask": [],
             "diff_height": [],
-            "robot_pos": [], "robot_quat": []
+            "robot_pos": [], "robot_quat": [], "dones": []
         }
         for _ in range(args_cli.num_envs)
     ]
@@ -288,14 +339,18 @@ def main():
     prev_yaws = [None] * args_cli.num_envs
 
     step = 0
-    print(f"Recording {args_cli.video_length} steps ({args_cli.model.upper()} mode)")
-    
+    print(f"Recording {args_cli.video_length} steps ({perc_desc.upper()} mode)")
+
     with torch.inference_mode():
         while simulation_app.is_running() and step < args_cli.video_length:
             actions = policy(obs)
             obs, _, dones, _ = env.step(actions)
-            
+
             # Reset state for terminated environments
+            if slam is not None:
+                done_indices = dones.nonzero(as_tuple=False).squeeze(-1)
+                if done_indices.numel() > 0:
+                    slam.reset_env(done_indices)
             for i in range(args_cli.num_envs):
                 if dones[i]:
                     hidden_states[i] = None
@@ -343,8 +398,10 @@ def main():
             # Project depth to sparse map
             sparse_map, occlusion_mask = projector(d_stack, robot_quat)
             
-            # Run perception model
-            if args_cli.model == "v5":
+            # Run perception (SLAM baseline or learned model)
+            if slam is not None:
+                pred_scan = slam(sparse_map, occlusion_mask, robot_pos, yaw)
+            elif args_cli.model == "v5":
                 # V5: Use hidden state
                 pred_scan, new_hidden = model(sparse_map, occlusion_mask, grav, hidden_states[0])
                 hidden_states[0] = new_hidden
@@ -404,7 +461,8 @@ def main():
                 buffers[i]["diff_height"].append(diff_scan[i].squeeze().cpu().numpy())
                 buffers[i]["robot_pos"].append(robot_pos[i].cpu().numpy())
                 buffers[i]["robot_quat"].append(robot_quat[i].cpu().numpy())
-            
+                buffers[i]["dones"].append(np.uint8(dones[i].item()))
+
             # Video frame (env 0)
             idx = 0
             img_grid = [
@@ -414,8 +472,8 @@ def main():
                 process_image(d_stack[idx, 2], "Left"), 
                 process_image(d_stack[idx, 3], "Right"), 
                 process_map_centered(sparse_map[idx], "Sparse Map"),
-                process_map_centered(gt_scan[idx], "GT Height"), 
-                process_map_centered(pred_scan[idx], "Model Output"), 
+                process_map_centered(gt_scan[idx], "GT Height"),
+                process_map_centered(pred_scan[idx], "SLAM Output" if slam is not None else "Model Output"),
                 process_map_centered(diff_scan[idx], "Difference", is_diff=True)
             ]
             
@@ -439,19 +497,42 @@ def main():
             grp.create_dataset("depth_rear",  data=to_uint16_mm(buffers[i]["depth_rear"]),  compression="gzip")
             grp.create_dataset("depth_left",  data=to_uint16_mm(buffers[i]["depth_left"]),  compression="gzip")
             grp.create_dataset("depth_right", data=to_uint16_mm(buffers[i]["depth_right"]), compression="gzip")
-            
+
             grp.create_dataset("gt_height",      data=to_int16_mm(buffers[i]["gt_height"]),    compression="gzip")
             grp.create_dataset("pred_height",    data=to_int16_mm(buffers[i]["pred_height"]),  compression="gzip")
             grp.create_dataset("sparse_height",  data=to_int16_mm(buffers[i]["sparse_height"]),compression="gzip")
             grp.create_dataset("diff_height",    data=to_int16_mm(buffers[i]["diff_height"]),  compression="gzip")
             grp.create_dataset("occlusion_mask", data=np.array(buffers[i]["occlusion_mask"], dtype=np.uint8), compression="gzip")
-            
+
             grp.create_dataset("robot_pos",  data=np.array(buffers[i]["robot_pos"], dtype=np.float32))
             grp.create_dataset("robot_quat", data=np.array(buffers[i]["robot_quat"], dtype=np.float32))
+            # Per-step episode-termination flags (uint8) -> lets the analyzer segment
+            # episodes from real resets instead of inferring them from robot_pos jumps.
+            grp.create_dataset("dones", data=np.array(buffers[i]["dones"], dtype=np.uint8), compression="gzip")
+
+        # File-level provenance attrs (analyzer meta reads these when present).
+        f.attrs["task"] = args_cli.task
+        f.attrs["locomotion_checkpoint"] = args_cli.locomotion_checkpoint or ""
+        f.attrs["method"] = args_cli.method
+        if args_cli.method == "slam":
+            f.attrs["perception_checkpoint"] = f"slam:{args_cli.slam_variant}"
+            f.attrs["slam_variant"] = args_cli.slam_variant
+        else:
+            f.attrs["perception_checkpoint"] = args_cli.perception_checkpoint or ""
+            f.attrs["model"] = args_cli.model
+        f.attrs["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.attrs["git_commit"] = get_git_suffix()
 
     print("Data saved")
+
+    # Headless (agent/batch) runs must terminate; keep-alive is for humans watching.
+    if getattr(args_cli, "headless", False):
+        env.close()
+        print("Evaluation complete")
+        return
+
     print("Entering keep-alive mode (Ctrl+C to exit)")
-    
+
     with torch.inference_mode():
         while simulation_app.is_running():
             obs, _, _, _ = env.step(policy(obs))
