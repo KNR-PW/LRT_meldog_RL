@@ -50,6 +50,14 @@ def main():
     # Get configs
     env_cfg = gym.spec(args_cli.task).kwargs["env_cfg_entry_point"]()  # Instantiate!
     agent_cfg = gym.spec(args_cli.task).kwargs["rsl_rl_cfg_entry_point"]()
+
+    # Obs normalization must match the checkpoint, not the current runner cfg
+    # (pre-run-B v1 checkpoints have no normalizer state)
+    ckpt = torch.load(args_cli.checkpoint, map_location="cpu", weights_only=False)
+    has_norm = any(k.startswith("actor_obs_normalizer.") for k in ckpt["model_state_dict"])
+    agent_cfg.policy.actor_obs_normalization = has_norm
+    agent_cfg.policy.critic_obs_normalization = has_norm
+    del ckpt
     
     # Override for play mode
     env_cfg.scene.num_envs = args_cli.num_envs
