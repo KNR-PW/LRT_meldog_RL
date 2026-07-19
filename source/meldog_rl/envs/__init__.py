@@ -11,6 +11,10 @@ Locomotion - Simulation (fast training):
 - Meldog-RL-Locomotion-FlatObs-Sim-v0
 - Meldog-RL-Locomotion-RoughObs-Sim-v0
 
+Locomotion - Simulation V2 (gait-quality reward package):
+- Meldog-RL-Locomotion-Flat-Sim-v1
+- Meldog-RL-Locomotion-Rough-Sim-v1
+
 Locomotion - Sim2Real (domain randomization):
 - Meldog-RL-Locomotion-Flat-Real-v0
 - Meldog-RL-Locomotion-Rough-Real-v0
@@ -33,6 +37,9 @@ from .configs import (
     RoughSimCfg,
     FlatObsSimCfg,
     RoughObsSimCfg,
+    # Simulation V2 (gait-quality)
+    FlatSimV2Cfg,
+    RoughSimV2Cfg,
     # Sim2Real
     FlatRealCfg,
     RoughRealCfg,
@@ -46,7 +53,12 @@ from .configs import (
 )
 
 # Agent configs
-from ..agents import MeldogFlatPPORunnerCfg, MeldogRoughPPORunnerCfg
+from ..agents import (
+    MeldogFlatPPORunnerCfg,
+    MeldogRoughPPORunnerCfg,
+    MeldogFlatV2PPORunnerCfg,
+    MeldogRoughV2PPORunnerCfg,
+)
 
 
 # Locomotion - Simulation
@@ -87,6 +99,28 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": RoughObsSimCfg,
         "rsl_rl_cfg_entry_point": MeldogRoughPPORunnerCfg,
+    },
+)
+
+
+# Locomotion - Simulation V2 (gait-quality reward package)
+gym.register(
+    id="Meldog-RL-Locomotion-Flat-Sim-v1",
+    entry_point="meldog_rl.envs:MeldogEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlatSimV2Cfg,
+        "rsl_rl_cfg_entry_point": MeldogFlatV2PPORunnerCfg,
+    },
+)
+
+gym.register(
+    id="Meldog-RL-Locomotion-Rough-Sim-v1",
+    entry_point="meldog_rl.envs:MeldogEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": RoughSimV2Cfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughV2PPORunnerCfg,
     },
 )
 
@@ -180,9 +214,12 @@ __all__ = [
     "MeldogEnv",
     # Simulation configs
     "FlatSimCfg",
-    "RoughSimCfg", 
+    "RoughSimCfg",
     "FlatObsSimCfg",
     "RoughObsSimCfg",
+    # Simulation V2 configs
+    "FlatSimV2Cfg",
+    "RoughSimV2Cfg",
     # Sim2Real configs
     "FlatRealCfg",
     "RoughRealCfg",

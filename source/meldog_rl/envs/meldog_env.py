@@ -55,21 +55,35 @@ class MeldogEnv(DirectRLEnv):
         # Curriculum learning tracking (for terrain difficulty progression)
         self._initial_robot_pos = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Reward logging
+        # Reward logging. The original 10 terms are always logged; each V2 term is
+        # only added when its scale is non-zero, so v0 configs log exactly the
+        # original 10 keys (bit-identical behavior + logs).
+        reward_keys = [
+            "track_lin_vel_xy_exp",
+            "track_ang_vel_z_exp",
+            "lin_vel_z_l2",
+            "ang_vel_xy_l2",
+            "dof_torques_l2",
+            "dof_acc_l2",
+            "action_rate_l2",
+            "feet_air_time",
+            "undesired_contacts",
+            "flat_orientation_l2",
+        ]
+        self._active_v2_terms = [
+            key
+            for key, scale_attr in (
+                ("foot_slip", "foot_slip_reward_scale"),
+                ("gait_sync", "gait_sync_reward_scale"),
+                ("air_time_variance", "air_time_variance_reward_scale"),
+                ("foot_clearance", "foot_clearance_reward_scale"),
+                ("joint_deviation_hip", "joint_deviation_hip_reward_scale"),
+            )
+            if getattr(self.cfg, scale_attr) != 0.0
+        ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-            for key in [
-                "track_lin_vel_xy_exp",
-                "track_ang_vel_z_exp",
-                "lin_vel_z_l2",
-                "ang_vel_xy_l2",
-                "dof_torques_l2",
-                "dof_acc_l2",
-                "action_rate_l2",
-                "feet_air_time",
-                "undesired_contacts",
-                "flat_orientation_l2",
-            ]
+            for key in reward_keys + self._active_v2_terms
         }
 
         # Find body indices for rewards/termination
@@ -77,6 +91,42 @@ class MeldogEnv(DirectRLEnv):
         self._feet_ids, _ = self._contact_sensor.find_bodies(".*F_link")
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(H|UL|LL)_link")
         self._undesired_actor_ids, _ = self._robot.find_bodies(".*(H|UL|LL)_link")
+
+        # Feet indices canonically ordered FL, FR, RL, RR for the V2 gait terms.
+        # Body names follow "<side><end>F_link" (LFF=front-left, RRF=rear-right, ...).
+        # Sensor and articulation are canonicalized independently so index i always
+        # refers to the same physical foot across the two data sources.
+        feet_sensor_ids, feet_sensor_names = self._contact_sensor.find_bodies(".*F_link")
+        feet_robot_ids, feet_robot_names = self._robot.find_bodies(".*F_link")
+        sensor_perm = self._canonical_foot_perm(feet_sensor_names)
+        robot_perm = self._canonical_foot_perm(feet_robot_names)
+        self._feet_sensor_ids_canon = [feet_sensor_ids[i] for i in sensor_perm]
+        self._feet_robot_ids_canon = [feet_robot_ids[i] for i in robot_perm]
+        # Diagonal-trot pairs (synchronized): (FL, RR) and (FR, RL).
+        self._gait_pair_0 = (self._feet_sensor_ids_canon[0], self._feet_sensor_ids_canon[3])
+        self._gait_pair_1 = (self._feet_sensor_ids_canon[1], self._feet_sensor_ids_canon[2])
+
+        # Hip-abduction (T) joints for the joint_deviation_hip penalty.
+        self._hip_joint_ids, _ = self._robot.find_joints(".*T_joint")
+
+    @staticmethod
+    def _canonical_foot_perm(names: list[str]) -> list[int]:
+        """Permutation reordering foot body names to canonical FL, FR, RL, RR.
+
+        Body names follow ``<side><end>...F_link`` (first char L/R side, second
+        char F/R front/rear). Falls back to identity if names don't map cleanly.
+        """
+        desired = ["FL", "FR", "RL", "RR"]
+
+        def label(name: str) -> str:
+            side = "L" if name[0].upper() == "L" else "R"
+            fb = "F" if name[1].upper() == "F" else "R"
+            return fb + side
+
+        labels = [label(n) for n in names]
+        if sorted(labels) == sorted(desired):
+            return [labels.index(d) for d in desired]
+        return list(range(len(names)))
 
     def _setup_scene(self):
         """Set up the simulation scene with robot, sensors, and terrain."""
@@ -277,9 +327,13 @@ class MeldogEnv(DirectRLEnv):
             :, self._feet_ids
         ]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+        if self.cfg.air_time_gate_full_cmd:
+            air_time_gate = torch.norm(self._commands, dim=1) > 0.1
+        else:
+            air_time_gate = torch.norm(self._commands[:, :2], dim=1) > 0.1
         air_time = torch.sum(
             (last_air_time - self.cfg.feet_air_time) * first_contact, dim=1
-        ) * (torch.norm(self._commands[:, :2], dim=1) > 0.1)
+        ) * air_time_gate
 
         # Undesired contacts
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -313,6 +367,33 @@ class MeldogEnv(DirectRLEnv):
             "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
         }
 
+        # V2 gait-quality terms (Spot ports). Each is only computed and logged when
+        # its scale is non-zero, so v0 configs produce the original 10 terms exactly.
+        if "foot_slip" in self._active_v2_terms:
+            rewards["foot_slip"] = (
+                self._reward_foot_slip() * self.cfg.foot_slip_reward_scale * self.step_dt
+            )
+        if "gait_sync" in self._active_v2_terms:
+            rewards["gait_sync"] = (
+                self._reward_gait_sync() * self.cfg.gait_sync_reward_scale * self.step_dt
+            )
+        if "air_time_variance" in self._active_v2_terms:
+            rewards["air_time_variance"] = (
+                self._reward_air_time_variance()
+                * self.cfg.air_time_variance_reward_scale
+                * self.step_dt
+            )
+        if "foot_clearance" in self._active_v2_terms:
+            rewards["foot_clearance"] = (
+                self._reward_foot_clearance() * self.cfg.foot_clearance_reward_scale * self.step_dt
+            )
+        if "joint_deviation_hip" in self._active_v2_terms:
+            rewards["joint_deviation_hip"] = (
+                self._reward_joint_deviation_hip()
+                * self.cfg.joint_deviation_hip_reward_scale
+                * self.step_dt
+            )
+
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
         # Log episode sums
@@ -320,6 +401,107 @@ class MeldogEnv(DirectRLEnv):
             self._episode_sums[key] += value
 
         return reward
+
+    # =========================================================================
+    # V2 gait-quality reward terms (Spot ports)
+    # =========================================================================
+
+    def _reward_foot_slip(self) -> torch.Tensor:
+        """Penalize planar (xy) foot velocity while the foot is in contact.
+
+        Port of Spot ``foot_slip_penalty``. Contact is force > 1 N (max over the
+        contact-force history), matching the env's other contact checks.
+        """
+        net_forces = self._contact_sensor.data.net_forces_w_history
+        is_contact = (
+            torch.max(
+                torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1
+            )[0]
+            > 1.0
+        )
+        foot_planar_vel = torch.norm(
+            self._robot.data.body_lin_vel_w[:, self._feet_robot_ids_canon, :2], dim=2
+        )
+        return torch.sum(is_contact * foot_planar_vel, dim=1)
+
+    def _reward_gait_sync(self) -> torch.Tensor:
+        """Enforce a diagonal trot via the Spot ``GaitReward`` product kernel.
+
+        Product of two "sync" terms (each synced pair's air/contact times should
+        match) and four "async" terms (the two diagonals should be out of phase).
+        Gated on non-zero command OR body speed above the velocity threshold.
+        """
+        air = self._contact_sensor.data.current_air_time
+        contact = self._contact_sensor.data.current_contact_time
+        max_err_sq = self.cfg.gait_sync_max_err ** 2
+        std = self.cfg.gait_sync_std
+
+        def sync(f0: int, f1: int) -> torch.Tensor:
+            se_air = torch.clip(torch.square(air[:, f0] - air[:, f1]), max=max_err_sq)
+            se_con = torch.clip(torch.square(contact[:, f0] - contact[:, f1]), max=max_err_sq)
+            return torch.exp(-(se_air + se_con) / std)
+
+        def async_(f0: int, f1: int) -> torch.Tensor:
+            se0 = torch.clip(torch.square(air[:, f0] - contact[:, f1]), max=max_err_sq)
+            se1 = torch.clip(torch.square(contact[:, f0] - air[:, f1]), max=max_err_sq)
+            return torch.exp(-(se0 + se1) / std)
+
+        p0, p1 = self._gait_pair_0, self._gait_pair_1
+        sync_reward = sync(p0[0], p0[1]) * sync(p1[0], p1[1])
+        async_reward = (
+            async_(p0[0], p1[0])
+            * async_(p0[1], p1[1])
+            * async_(p0[0], p1[1])
+            * async_(p1[0], p0[1])
+        )
+        cmd = torch.norm(self._commands, dim=1)
+        body_vel = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        gate = torch.logical_or(cmd > 0.0, body_vel > self.cfg.gait_sync_vel_threshold)
+        return torch.where(gate, sync_reward * async_reward, torch.zeros_like(sync_reward))
+
+    def _reward_air_time_variance(self) -> torch.Tensor:
+        """Penalize variance in per-foot air/contact durations (Spot port)."""
+        last_air = self._contact_sensor.data.last_air_time[:, self._feet_sensor_ids_canon]
+        last_contact = self._contact_sensor.data.last_contact_time[:, self._feet_sensor_ids_canon]
+        return torch.var(torch.clip(last_air, max=0.5), dim=1) + torch.var(
+            torch.clip(last_contact, max=0.5), dim=1
+        )
+
+    def _reward_foot_clearance(self) -> torch.Tensor:
+        """Reward swing feet clearing a target height above the terrain.
+
+        Terrain-relative variant of Spot ``foot_clearance_reward``: foot height is
+        taken above the nearest height-scanner grid point (feet lie inside the
+        1.6x1.0 m yaw-aligned scan), so it is valid on rough terrain, not just flat.
+        """
+        foot_pos = self._robot.data.body_pos_w[:, self._feet_robot_ids_canon, :]
+        foot_xy = foot_pos[:, :, :2]
+        foot_z = foot_pos[:, :, 2]
+
+        hits = self._height_scanner.data.ray_hits_w
+        dist = torch.cdist(foot_xy, hits[:, :, :2])  # (N, 4, num_rays)
+        nearest = torch.argmin(dist, dim=2)  # (N, 4)
+        terrain_z = torch.gather(hits[:, :, 2], 1, nearest)  # (N, 4)
+        # Missed rays are inf in ray_hits_w; argmin already prefers valid hits, but
+        # guard the all-miss case so the exp kernel never sees inf/NaN.
+        terrain_z = torch.where(torch.isfinite(terrain_z), terrain_z, foot_z)
+        foot_height = foot_z - terrain_z
+
+        foot_z_target_error = torch.square(foot_height - self.cfg.foot_clearance_target)
+        foot_vel_tanh = torch.tanh(
+            self.cfg.foot_clearance_tanh_mult
+            * torch.norm(self._robot.data.body_lin_vel_w[:, self._feet_robot_ids_canon, :2], dim=2)
+        )
+        error = torch.sum(foot_z_target_error * foot_vel_tanh, dim=1)
+        return torch.exp(-error / self.cfg.foot_clearance_std)
+
+    def _reward_joint_deviation_hip(self) -> torch.Tensor:
+        """L1 deviation of the hip-abduction (T) joints from their default pose."""
+        deviation = (
+            self._robot.data.joint_pos[:, self._hip_joint_ids]
+            - self._robot.data.default_joint_pos[:, self._hip_joint_ids]
+        )
+        return torch.sum(torch.abs(deviation), dim=1)
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Check termination conditions."""
@@ -346,13 +528,20 @@ class MeldogEnv(DirectRLEnv):
         num_envs = len(env_ids)
 
         # Determine which environments should stand still
-        num_standing = int(num_envs * self.cfg.standing_env_fraction)
         standing_mask = torch.rand(num_envs, device=self.device) < self.cfg.standing_env_fraction
 
         # Sample random commands in [-1, 1] for all 3 axes
         self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
 
-        # Set standing environments to zero velocity
+        # Pure-rotation environments: zero the linear command, keep the sampled yaw
+        # rate. Drawn only when enabled so the default (0.0) leaves the RNG stream --
+        # and thus every v0 command sequence -- bit-identical.
+        if self.cfg.pure_rotation_fraction > 0.0:
+            rotation_mask = torch.rand(num_envs, device=self.device) < self.cfg.pure_rotation_fraction
+            if rotation_mask.any():
+                self._commands[env_ids[rotation_mask], :2] = 0.0
+
+        # Set standing environments to zero velocity (takes precedence over rotation)
         if standing_mask.any():
             self._commands[env_ids[standing_mask]] = 0.0
 

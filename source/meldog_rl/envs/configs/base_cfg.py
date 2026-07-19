@@ -381,6 +381,27 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
     feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
-    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
-    
+    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None
+
     flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
+
+# -- V2 REWARDS (Spot-ported gait-quality terms) --
+    # All scales default to 0.0 -> the term is neither computed nor logged, so
+    # every v0 task/config/checkpoint behaves bit-identically. V2 configs set them.
+    foot_slip_reward_scale = 0.0            # Spot foot_slip_penalty (planar slip in contact)
+    gait_sync_reward_scale = 0.0           # Spot GaitReward (diagonal-trot sync/async product)
+    gait_sync_std = 0.1                     # GaitReward exp kernel width
+    gait_sync_max_err = 0.2                 # GaitReward per-term clip (seconds)
+    gait_sync_vel_threshold = 0.5           # gate on body speed when command is ~0
+    air_time_variance_reward_scale = 0.0   # Spot air_time_variance_penalty
+    foot_clearance_reward_scale = 0.0      # Spot foot_clearance_reward (terrain-relative here)
+    foot_clearance_target = 0.08            # target swing-foot height above terrain (m)
+    foot_clearance_std = 0.05               # clearance exp kernel width
+    foot_clearance_tanh_mult = 2.0          # weights clearance error by planar foot speed
+    joint_deviation_hip_reward_scale = 0.0 # L1 deviation of hip-abduction (T) joints
+
+# -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
+    # feet_air_time gate: v0 gates on norm(cmd[:2]); True gates on full 3-dim command.
+    air_time_gate_full_cmd = False
+    # Fraction of resampled envs given a pure-rotation command (linear zeroed, wz kept).
+    pure_rotation_fraction = 0.0

@@ -47,6 +47,17 @@ class MeldogFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 
 
 @configclass
+class MeldogFlatV2PPORunnerCfg(MeldogFlatPPORunnerCfg):
+    """PPO runner for the Meldog flat V2 (gait-quality) locomotion task.
+
+    Identical to the v0 flat runner except for the experiment name. Observation
+    normalization stays disabled here -- it is a Run B change.
+    """
+
+    experiment_name = "meldog_flat_v2"
+
+
+@configclass
 class MeldogRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     """PPO runner configuration for Meldog rough terrain locomotion.
 
@@ -83,3 +94,14 @@ class MeldogRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class MeldogRoughV2PPORunnerCfg(MeldogRoughPPORunnerCfg):
+    """PPO runner for the Meldog rough V2 (gait-quality) locomotion task.
+
+    Identical to the v0 rough runner except for the experiment name. Observation
+    normalization stays disabled here -- it is a Run B change.
+    """
+
+    experiment_name = "meldog_rough_v2"

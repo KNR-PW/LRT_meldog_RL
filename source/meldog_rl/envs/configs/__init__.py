@@ -25,6 +25,10 @@ from .simulation import (
     RoughSimCfg,
     FlatObsSimCfg,
     RoughObsSimCfg,
+    FlatSimV2Cfg,
+    FlatSimV2Cfg_PLAY,
+    RoughSimV2Cfg,
+    RoughSimV2Cfg_PLAY,
 )
 
 # Sim2Real configs
@@ -65,6 +69,10 @@ __all__ = [
     "RoughSimCfg",
     "FlatObsSimCfg",
     "RoughObsSimCfg",
+    "FlatSimV2Cfg",
+    "FlatSimV2Cfg_PLAY",
+    "RoughSimV2Cfg",
+    "RoughSimV2Cfg_PLAY",
     # Sim2Real
     "FlatRealCfg",
     "RoughRealCfg",
