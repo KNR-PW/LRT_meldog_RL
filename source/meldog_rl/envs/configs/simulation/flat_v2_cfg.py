@@ -25,11 +25,12 @@ class FlatSimV2Cfg(FlatSimCfg):
     foot_slip_reward_scale = -0.5
     gait_sync_reward_scale = 2.0
     air_time_variance_reward_scale = -1.0
+    air_time_mode_reward_scale = 1.0           # Run A2: replaces legacy feet_air_time
     foot_clearance_reward_scale = 0.5          # terrain-relative clearance
     joint_deviation_hip_reward_scale = -0.1
 
     # Retuned command / gait shaping
-    feet_air_time_reward_scale = 0.5           # was 2.0 (rear-pair bounding exploit)
+    feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
     yaw_rate_reward_scale = 1.5                # was 0.7 (parity with linear tracking)
 
     # Behavior flags

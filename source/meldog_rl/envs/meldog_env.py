@@ -66,7 +66,13 @@ class MeldogEnv(DirectRLEnv):
             "dof_torques_l2",
             "dof_acc_l2",
             "action_rate_l2",
-            "feet_air_time",
+        ]
+        # Legacy feet_air_time is also scale-gated (V2 replaces it with
+        # air_time_mode); every v0 config has a non-zero scale, so v0 logs keep
+        # all original 10 keys in their original position.
+        if self.cfg.feet_air_time_reward_scale != 0.0:
+            reward_keys.append("feet_air_time")
+        reward_keys += [
             "undesired_contacts",
             "flat_orientation_l2",
         ]
@@ -76,6 +82,7 @@ class MeldogEnv(DirectRLEnv):
                 ("foot_slip", "foot_slip_reward_scale"),
                 ("gait_sync", "gait_sync_reward_scale"),
                 ("air_time_variance", "air_time_variance_reward_scale"),
+                ("air_time_mode", "air_time_mode_reward_scale"),
                 ("foot_clearance", "foot_clearance_reward_scale"),
                 ("joint_deviation_hip", "joint_deviation_hip_reward_scale"),
             )
@@ -322,18 +329,19 @@ class MeldogEnv(DirectRLEnv):
             torch.square(self._actions - self._previous_actions), dim=1
         )
 
-        # Gait rewards
-        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[
-            :, self._feet_ids
-        ]
-        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        if self.cfg.air_time_gate_full_cmd:
-            air_time_gate = torch.norm(self._commands, dim=1) > 0.1
-        else:
-            air_time_gate = torch.norm(self._commands[:, :2], dim=1) > 0.1
-        air_time = torch.sum(
-            (last_air_time - self.cfg.feet_air_time) * first_contact, dim=1
-        ) * air_time_gate
+        # Gait rewards (legacy feet_air_time; scale-gated, V2 uses air_time_mode)
+        if self.cfg.feet_air_time_reward_scale != 0.0:
+            first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[
+                :, self._feet_ids
+            ]
+            last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+            if self.cfg.air_time_gate_full_cmd:
+                air_time_gate = torch.norm(self._commands, dim=1) > 0.1
+            else:
+                air_time_gate = torch.norm(self._commands[:, :2], dim=1) > 0.1
+            air_time = torch.sum(
+                (last_air_time - self.cfg.feet_air_time) * first_contact, dim=1
+            ) * air_time_gate
 
         # Undesired contacts
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -362,10 +370,17 @@ class MeldogEnv(DirectRLEnv):
             "dof_torques_l2": joint_torques * self.cfg.joint_torque_reward_scale * self.step_dt,
             "dof_acc_l2": joint_accel * self.cfg.joint_accel_reward_scale * self.step_dt,
             "action_rate_l2": action_rate * self.cfg.action_rate_reward_scale * self.step_dt,
-            "feet_air_time": air_time * self.cfg.feet_air_time_reward_scale * self.step_dt,
-            "undesired_contacts": contacts * self.cfg.undesired_contact_reward_scale * self.step_dt,
-            "flat_orientation_l2": flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt,
         }
+        if self.cfg.feet_air_time_reward_scale != 0.0:
+            rewards["feet_air_time"] = (
+                air_time * self.cfg.feet_air_time_reward_scale * self.step_dt
+            )
+        rewards["undesired_contacts"] = (
+            contacts * self.cfg.undesired_contact_reward_scale * self.step_dt
+        )
+        rewards["flat_orientation_l2"] = (
+            flat_orientation * self.cfg.flat_orientation_reward_scale * self.step_dt
+        )
 
         # V2 gait-quality terms (Spot ports). Each is only computed and logged when
         # its scale is non-zero, so v0 configs produce the original 10 terms exactly.
@@ -381,6 +396,12 @@ class MeldogEnv(DirectRLEnv):
             rewards["air_time_variance"] = (
                 self._reward_air_time_variance()
                 * self.cfg.air_time_variance_reward_scale
+                * self.step_dt
+            )
+        if "air_time_mode" in self._active_v2_terms:
+            rewards["air_time_mode"] = (
+                self._reward_air_time_mode()
+                * self.cfg.air_time_mode_reward_scale
                 * self.step_dt
             )
         if "foot_clearance" in self._active_v2_terms:
@@ -466,6 +487,32 @@ class MeldogEnv(DirectRLEnv):
         return torch.var(torch.clip(last_air, max=0.5), dim=1) + torch.var(
             torch.clip(last_contact, max=0.5), dim=1
         )
+
+    def _reward_air_time_mode(self) -> torch.Tensor:
+        """Reward per-foot air/contact phases approaching the gait mode time.
+
+        Port of Spot ``air_time_reward``: while moving, each foot earns its current
+        phase duration (air or contact, whichever is longer) capped at ``mode_time``
+        -- so every foot must keep cycling and no foot can profit from floating or
+        carrying indefinitely. When commanded to stand (and slow), it instead pays
+        for contact time exceeding air time. Uses the full 3-dim command norm.
+        """
+        mode_time = self.cfg.air_time_mode_time
+        air = self._contact_sensor.data.current_air_time[:, self._feet_sensor_ids_canon]
+        contact = self._contact_sensor.data.current_contact_time[:, self._feet_sensor_ids_canon]
+        t_max = torch.max(air, contact)
+        t_min = torch.clip(t_max, max=mode_time)
+        stance_cmd_reward = torch.clip(contact - air, -mode_time, mode_time)
+        cmd = torch.norm(self._commands, dim=1).unsqueeze(1).expand(-1, 4)
+        body_vel = (
+            torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1).unsqueeze(1).expand(-1, 4)
+        )
+        reward = torch.where(
+            torch.logical_or(cmd > 0.0, body_vel > self.cfg.air_time_mode_vel_threshold),
+            torch.where(t_max < mode_time, t_min, torch.zeros_like(t_min)),
+            stance_cmd_reward,
+        )
+        return torch.sum(reward, dim=1)
 
     def _reward_foot_clearance(self) -> torch.Tensor:
         """Reward swing feet clearing a target height above the terrain.

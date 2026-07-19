@@ -394,6 +394,9 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     gait_sync_max_err = 0.2                 # GaitReward per-term clip (seconds)
     gait_sync_vel_threshold = 0.5           # gate on body speed when command is ~0
     air_time_variance_reward_scale = 0.0   # Spot air_time_variance_penalty
+    air_time_mode_reward_scale = 0.0       # Spot air_time_reward (per-foot mode-time shaping)
+    air_time_mode_time = 0.3                # target gait phase duration (seconds)
+    air_time_mode_vel_threshold = 0.5       # gate on body speed when command is ~0
     foot_clearance_reward_scale = 0.0      # Spot foot_clearance_reward (terrain-relative here)
     foot_clearance_target = 0.08            # target swing-foot height above terrain (m)
     foot_clearance_std = 0.05               # clearance exp kernel width
