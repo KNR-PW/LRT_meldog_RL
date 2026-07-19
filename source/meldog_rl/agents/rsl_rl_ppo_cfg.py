@@ -50,11 +50,17 @@ class MeldogFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 class MeldogFlatV2PPORunnerCfg(MeldogFlatPPORunnerCfg):
     """PPO runner for the Meldog flat V2 (gait-quality) locomotion task.
 
-    Identical to the v0 flat runner except for the experiment name. Observation
-    normalization stays disabled here -- it is a Run B change.
+    v0 flat runner + Run B observation normalization (actor and critic).
+    Note: the normalizer state changes the checkpoint contract -- v1 tasks only.
     """
 
     experiment_name = "meldog_flat_v2"
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Run B: normalize observations (joint_vel +/-18.9 next to heightmap +/-1)
+        self.policy.actor_obs_normalization = True
+        self.policy.critic_obs_normalization = True
 
 
 @configclass
@@ -100,8 +106,14 @@ class MeldogRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 class MeldogRoughV2PPORunnerCfg(MeldogRoughPPORunnerCfg):
     """PPO runner for the Meldog rough V2 (gait-quality) locomotion task.
 
-    Identical to the v0 rough runner except for the experiment name. Observation
-    normalization stays disabled here -- it is a Run B change.
+    v0 rough runner + Run B observation normalization (actor and critic).
+    Note: the normalizer state changes the checkpoint contract -- v1 tasks only.
     """
 
     experiment_name = "meldog_rough_v2"
+
+    def __post_init__(self):
+        super().__post_init__()
+        # Run B: normalize observations (joint_vel +/-18.9 next to heightmap +/-1)
+        self.policy.actor_obs_normalization = True
+        self.policy.critic_obs_normalization = True

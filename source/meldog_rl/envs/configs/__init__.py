@@ -6,6 +6,7 @@
 from .base_cfg import (
     BaseMeldogEnvCfg,
     BaseEventCfg,
+    V2EventCfg,
     Sim2RealEventCfg,
     MELDOG_CFG,
     MELDOG_USD_PATH,
@@ -51,6 +52,7 @@ __all__ = [
     # Base
     "BaseMeldogEnvCfg",
     "BaseEventCfg",
+    "V2EventCfg",
     "Sim2RealEventCfg",
     "MELDOG_CFG",
     "MELDOG_USD_PATH",

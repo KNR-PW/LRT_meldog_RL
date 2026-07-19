@@ -136,6 +136,29 @@ class BaseEventCfg:
     )
 
 
+# Domain Randomization - V2 (Run B robustness package)
+@configclass
+class V2EventCfg(BaseEventCfg):
+    """Base randomization plus periodic pushes (V2 locomotion tasks).
+
+    Reset-state randomization is NOT an EventTerm here: ``MeldogEnv._reset_idx``
+    writes the default root/joint state after ``super()._reset_idx()`` (where
+    ``mode="reset"`` events fire), which would silently overwrite them. It is
+    implemented inline in the env instead, gated by ``cfg.reset_randomization``.
+    Interval events fire during ``step()`` and are unaffected.
+    """
+
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},
+        },
+    )
+
+
 # Domain Randomization - Sim2Real (Aggressive)
 @configclass
 class Sim2RealEventCfg(BaseEventCfg):
@@ -408,3 +431,10 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     air_time_gate_full_cmd = False
     # Fraction of resampled envs given a pure-rotation command (linear zeroed, wz kept).
     pure_rotation_fraction = 0.0
+    # Run B: randomize reset state (yaw +/-pi, joint pos +/-0.1 rad, joint vel
+    # +/-0.5, root lin vel +/-0.5 m/s xy). Inline in _reset_idx (see V2EventCfg).
+    reset_randomization = False
+    # Run B: additive uniform observation noise (Go2 rough values) in
+    # _get_observations: lin_vel 0.1, ang_vel 0.2, gravity 0.05, joint_pos 0.01,
+    # joint_vel 1.5, height_scan 0.1.
+    obs_noise = False

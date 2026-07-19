@@ -17,7 +17,7 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import ContactSensor, RayCaster, TiledCamera
-from isaaclab.utils.math import quat_apply, quat_from_angle_axis
+from isaaclab.utils.math import quat_apply, quat_from_angle_axis, quat_mul
 
 from .configs import BaseMeldogEnvCfg
 
@@ -280,28 +280,51 @@ class MeldogEnv(DirectRLEnv):
         """Compute observations for the policy."""
         self._previous_actions = self._actions.clone()
 
+        lin_vel = self._robot.data.root_lin_vel_b
+        ang_vel = self._robot.data.root_ang_vel_b
+        gravity = self._robot.data.projected_gravity_b
+        joint_pos = self._robot.data.joint_pos - self._robot.data.default_joint_pos
+        joint_vel = self._robot.data.joint_vel
+
         # Height map from raycaster
         height_data = (
             self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
             - self._height_scanner.data.ray_hits_w[..., 2]
             - 0.5
-        ).clip(-1.0, 1.0)
+        )
+
+        # Additive uniform observation noise (Run B; Go2 rough values). Noise is
+        # applied before the height clip, mirroring the manager-based pipeline
+        # (func -> noise -> clip). Gated so v0 consumes no RNG and is bit-identical.
+        if self.cfg.obs_noise:
+
+            def _unoise(tensor: torch.Tensor, mag: float) -> torch.Tensor:
+                return tensor + torch.empty_like(tensor).uniform_(-mag, mag)
+
+            lin_vel = _unoise(lin_vel, 0.1)
+            ang_vel = _unoise(ang_vel, 0.2)
+            gravity = _unoise(gravity, 0.05)
+            joint_pos = _unoise(joint_pos, 0.01)
+            joint_vel = _unoise(joint_vel, 1.5)
+            height_data = _unoise(height_data, 0.1)
+
+        height_data = height_data.clip(-1.0, 1.0)
 
         # Concatenate observation vector
         obs = torch.cat(
             [
-                self._robot.data.root_lin_vel_b,      # 3
-                self._robot.data.root_ang_vel_b,      # 3
-                self._robot.data.projected_gravity_b, # 3
+                lin_vel,                              # 3
+                ang_vel,                              # 3
+                gravity,                              # 3
                 self._commands,                        # 3
-                self._robot.data.joint_pos - self._robot.data.default_joint_pos,  # 12
-                self._robot.data.joint_vel,           # 12
+                joint_pos,                             # 12
+                joint_vel,                             # 12
                 height_data,                          # 187 (17x11)
                 self._actions,                        # 12
             ],
             dim=-1,
         )
-        
+
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -662,6 +685,29 @@ class MeldogEnv(DirectRLEnv):
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]
+
+        # Run B reset randomization. Inline (not a reset EventTerm) because the
+        # state writes below run after super()._reset_idx() and would overwrite
+        # event-based randomization. Gated so v0 consumes no RNG on reset.
+        if self.cfg.reset_randomization:
+            num_resets = len(env_ids)
+            # Heading: random yaw in [-pi, pi) composed onto the default quat
+            yaw = torch.empty(num_resets, device=self.device).uniform_(-torch.pi, torch.pi)
+            axis_z = torch.zeros(num_resets, 3, device=self.device)
+            axis_z[:, 2] = 1.0
+            default_root_state[:, 3:7] = quat_mul(
+                quat_from_angle_axis(yaw, axis_z), default_root_state[:, 3:7]
+            )
+            # Root planar velocity +/-0.5 m/s
+            default_root_state[:, 7:9] += torch.empty(
+                num_resets, 2, device=self.device
+            ).uniform_(-0.5, 0.5)
+            # Joint positions +/-0.1 rad around default, clamped to soft limits
+            joint_pos = joint_pos + torch.empty_like(joint_pos).uniform_(-0.1, 0.1)
+            soft_limits = self._robot.data.soft_joint_pos_limits[env_ids]
+            joint_pos = joint_pos.clamp(soft_limits[..., 0], soft_limits[..., 1])
+            # Joint velocities +/-0.5 rad/s
+            joint_vel = joint_vel + torch.empty_like(joint_vel).uniform_(-0.5, 0.5)
 
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
