@@ -36,7 +36,8 @@ class FlatSimV2Cfg(FlatSimCfg):
     # Run D posture package: stand at the measured nominal height, and tilt WITH the
     # terrain instead of holding gravity-level (the legacy gravity term is switched
     # off; on flat ground the terrain-relative term reduces to it exactly).
-    base_height_reward_scale = -2.0            # target = cfg.base_height_target (0.34 m)
+    # Run D2 rescale — see rough_v2_cfg for the magnitude rationale.
+    base_height_reward_scale = -40.0           # target = cfg.base_height_target (0.34 m)
     # -5.0 preserves FlatSimCfg's original level-keeping weight: on flat ground the
     # terrain-relative term is mathematically identical to flat_orientation_l2, so
     # anything less would be a silent weight cut (rough uses -1.0, as before).

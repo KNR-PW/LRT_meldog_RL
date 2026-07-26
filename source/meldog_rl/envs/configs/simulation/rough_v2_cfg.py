@@ -37,8 +37,13 @@ class RoughSimV2Cfg(RoughSimCfg):
     # Run D posture package: stand at the measured nominal height, and tilt WITH the
     # terrain instead of holding gravity-level (the legacy gravity term is switched
     # off; on flat ground the terrain-relative term reduces to it exactly).
-    base_height_reward_scale = -2.0            # target = cfg.base_height_target (0.34 m)
-    flat_orientation_terrain_reward_scale = -1.0
+    # Run D2 rescale. Run D used -2.0 / -1.0, which at the errors they had to correct
+    # (7 cm height, 5 deg pitch) were worth -0.0098 and -0.0076 per step against a
+    # +1.30/step contact_schedule -- under 1 %, so the policy ignored them and posture
+    # got worse. These weights put both at ~15 % of the gait term at those errors;
+    # the quadratic keeps them gentle near target.
+    base_height_reward_scale = -40.0           # target = cfg.base_height_target (0.34 m)
+    flat_orientation_terrain_reward_scale = -20.0
 
     # Retuned command / gait shaping
     feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
