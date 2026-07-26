@@ -31,19 +31,34 @@ class RoughSimV2Cfg(RoughSimCfg):
     # (diagonal limp, shuffle-in-place).
     foot_slip_reward_scale = -0.5
     contact_schedule_reward_scale = 2.0        # Run C: match contacts to the clock
-    foot_clearance_reward_scale = 0.5          # terrain-relative, swing-window form
+    # Run D3: raise foot lift. Measurement showed the human-visible "low to the
+    # ground" defect is FOOT LIFT, not body height -- v1.0-rough lifts its feet
+    # 14.3 cm (p50) vs run C's 5-8 cm apex, while both stand at the same 0.30 m.
+    # Scale 0.5 -> 2.0 with std 0.05 makes a 5 cm clearance shortfall cost ~0.2/step,
+    # ~15 % of the +1.3/step contact_schedule (see the reward-magnitude rule).
+    foot_clearance_reward_scale = 2.0          # terrain-relative, swing-window form
+    # Target is the foot BODY ORIGIN height above terrain; that origin sits ~3.6 cm
+    # above ground in contact (collision radius), so the old 0.08 asked for only
+    # ~4.4 cm of real clearance. 0.13 -> ~9.4 cm, near v1.0-rough's measured ~10.7.
+    foot_clearance_target = 0.13
     joint_deviation_hip_reward_scale = -0.1
 
-    # Run D posture package: stand at the measured nominal height, and tilt WITH the
-    # terrain instead of holding gravity-level (the legacy gravity term is switched
-    # off; on flat ground the terrain-relative term reduces to it exactly).
-    # Run D2 rescale. Run D used -2.0 / -1.0, which at the errors they had to correct
-    # (7 cm height, 5 deg pitch) were worth -0.0098 and -0.0076 per step against a
-    # +1.30/step contact_schedule -- under 1 %, so the policy ignored them and posture
-    # got worse. These weights put both at ~15 % of the gait term at those errors;
-    # the quadratic keeps them gentle near target.
-    base_height_reward_scale = -40.0           # target = cfg.base_height_target (0.34 m)
-    flat_orientation_terrain_reward_scale = -20.0
+    # Terrain-relative orientation: tilt WITH the terrain instead of holding
+    # gravity-level (the legacy gravity term is off; on flat ground the
+    # terrain-relative term reduces to it exactly).
+    # Run D3: -20.0 (D2) drove pitch_terrain_rel 0.087 -> 0.021 but is also a
+    # freeze incentive -- a SQUARED attitude penalty punishes the pitch oscillation
+    # every trot produces, and D2 duly braced (pitch_std 0.139 -> 0.063, rear feet
+    # planted). -8.0 is ~5 % of the gait term at a 5 deg error: enough to correct
+    # (D's -1.0 was 0.58 %, i.e. nothing) without paying to stand still.
+    flat_orientation_terrain_reward_scale = -8.0
+
+    # Run D3: base-height reward OFF. Run D2's -40.0 fixed posture by making the
+    # robot squat and plant both rear feet (duty 0.98/0.99, apex 2-5 mm) -- an
+    # instantaneous height penalty fights a dynamic gait, whose body height must
+    # oscillate. It was also solving a non-problem: run C already matched the
+    # v1.0-rough baseline height (0.300 vs 0.299).
+    base_height_reward_scale = 0.0             # target = cfg.base_height_target (0.34 m)
 
     # Retuned command / gait shaping
     feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)

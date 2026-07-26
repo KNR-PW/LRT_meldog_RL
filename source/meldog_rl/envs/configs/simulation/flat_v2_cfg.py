@@ -30,18 +30,23 @@ class FlatSimV2Cfg(FlatSimCfg):
     # (diagonal limp, shuffle-in-place).
     foot_slip_reward_scale = -0.5
     contact_schedule_reward_scale = 2.0        # Run C: match contacts to the clock
-    foot_clearance_reward_scale = 0.5          # terrain-relative, swing-window form
+    foot_clearance_reward_scale = 2.0          # terrain-relative, swing-window form
     joint_deviation_hip_reward_scale = -0.1
 
     # Run D posture package: stand at the measured nominal height, and tilt WITH the
     # terrain instead of holding gravity-level (the legacy gravity term is switched
     # off; on flat ground the terrain-relative term reduces to it exactly).
-    # Run D2 rescale — see rough_v2_cfg for the magnitude rationale.
-    base_height_reward_scale = -40.0           # target = cfg.base_height_target (0.34 m)
-    # -5.0 preserves FlatSimCfg's original level-keeping weight: on flat ground the
-    # terrain-relative term is mathematically identical to flat_orientation_l2, so
-    # anything less would be a silent weight cut (rough uses -1.0, as before).
-    flat_orientation_terrain_reward_scale = -5.0
+    # Run D3: base-height reward OFF, foot clearance up — see rough_v2_cfg.
+    base_height_reward_scale = 0.0             # target = cfg.base_height_target (0.34 m)
+    # Run D3: -8.0 on both terrains — see rough_v2_cfg for why D2's -20.0 was a
+    # freeze incentive. (FlatSimCfg's legacy gravity term was -5.0; on flat ground
+    # the two are mathematically identical, so -8.0 is slightly stronger than the
+    # original level-keeping weight, not weaker.)
+    flat_orientation_terrain_reward_scale = -8.0
+    # Foot-lift target is the foot BODY ORIGIN height above terrain, and that origin
+    # sits ~3.6 cm above ground when in contact (collision radius), so 0.08 only
+    # asked for ~4.4 cm of real clearance. 0.13 -> ~9.4 cm, near v1.0-rough's ~10.7.
+    foot_clearance_target = 0.13
 
     # Retuned command / gait shaping
     feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
