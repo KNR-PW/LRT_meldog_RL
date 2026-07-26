@@ -51,7 +51,7 @@ class RoughSimV2Cfg(RoughSimCfg):
     # every trot produces, and D2 duly braced (pitch_std 0.139 -> 0.063, rear feet
     # planted). -8.0 is ~5 % of the gait term at a 5 deg error: enough to correct
     # (D's -1.0 was 0.58 %, i.e. nothing) without paying to stand still.
-    flat_orientation_terrain_reward_scale = -8.0
+    flat_orientation_terrain_reward_scale = -14.0
 
     # Run D3: base-height reward OFF. Run D2's -40.0 fixed posture by making the
     # robot squat and plant both rear feet (duty 0.98/0.99, apex 2-5 mm) -- an
