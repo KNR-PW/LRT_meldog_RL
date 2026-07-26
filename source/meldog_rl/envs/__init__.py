@@ -14,6 +14,7 @@ Locomotion - Simulation (fast training):
 Locomotion - Simulation V2 (gait-quality reward package):
 - Meldog-RL-Locomotion-Flat-Sim-v1
 - Meldog-RL-Locomotion-Rough-Sim-v1
+- Meldog-RL-Locomotion-Rough-SimD1-v1
 
 Locomotion - Sim2Real (domain randomization):
 - Meldog-RL-Locomotion-Flat-Real-v0
@@ -40,6 +41,7 @@ from .configs import (
     # Simulation V2 (gait-quality)
     FlatSimV2Cfg,
     RoughSimV2Cfg,
+    RoughSimV2D1Cfg,
     # Sim2Real
     FlatRealCfg,
     RoughRealCfg,
@@ -120,6 +122,16 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": RoughSimV2Cfg,
+        "rsl_rl_cfg_entry_point": MeldogRoughV2PPORunnerCfg,
+    },
+)
+
+gym.register(
+    id="Meldog-RL-Locomotion-Rough-SimD1-v1",
+    entry_point="meldog_rl.envs:MeldogEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": RoughSimV2D1Cfg,
         "rsl_rl_cfg_entry_point": MeldogRoughV2PPORunnerCfg,
     },
 )

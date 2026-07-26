@@ -29,6 +29,8 @@ from .simulation import (
     FlatSimV2Cfg,
     FlatSimV2Cfg_PLAY,
     RoughSimV2Cfg,
+    RoughSimV2D1Cfg,
+    RoughSimV2D1Cfg_PLAY,
     RoughSimV2Cfg_PLAY,
 )
 
@@ -74,6 +76,8 @@ __all__ = [
     "FlatSimV2Cfg",
     "FlatSimV2Cfg_PLAY",
     "RoughSimV2Cfg",
+    "RoughSimV2D1Cfg",
+    "RoughSimV2D1Cfg_PLAY",
     "RoughSimV2Cfg_PLAY",
     # Sim2Real
     "FlatRealCfg",

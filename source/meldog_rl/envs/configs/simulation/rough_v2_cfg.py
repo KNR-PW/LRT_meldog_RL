@@ -112,3 +112,42 @@ class RoughSimV2Cfg_PLAY(RoughSimV2Cfg):
         self.events = None  # No domain randomization during play
         self.reset_randomization = False
         self.obs_noise = False
+
+
+@configclass
+class RoughSimV2D1Cfg(RoughSimV2Cfg):
+    """Run D1 weights — the variant the human rated best (2026-07-26).
+
+    Same phase-clock gait + robustness package as ``RoughSimV2Cfg``, but with the
+    run-D posture/clearance weights restored. Kept as its own class (and task id)
+    so the overnight queue can run D1 and D4 back-to-back without editing configs
+    between runs.
+
+    Why these values: D1 measured the best efficiency of any V2 run (CoT 0.93,
+    torque saturation 9.0 %) and the best tracking (lin_err 0.073), and the human
+    review preferred its foot placement -- D3's clearance weight of 2.0 produced a
+    visible "vibrating around the target height" artifact, and its taller target
+    dropped the body to 0.246 m (D1: 0.270, baseline: 0.299).
+    """
+
+    foot_clearance_reward_scale = 0.5          # D3 used 2.0 -> over-optimized, vibrated
+    foot_clearance_target = 0.08               # D3 used 0.13
+    flat_orientation_terrain_reward_scale = -1.0   # D3/D4 use -8.0 / -14.0
+    base_height_reward_scale = -2.0            # D3/D4 have this off
+
+
+@configclass
+class RoughSimV2D1Cfg_PLAY(RoughSimV2D1Cfg):
+    """D1 variant for play/inference (mirrors ``RoughSimV2Cfg_PLAY``)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.enable_curriculum = False
+        if self.terrain.terrain_generator is not None:
+            self.terrain.terrain_generator.curriculum = False
+        self.terrain.max_init_terrain_level = None
+        self.scene.num_envs = 50
+        self.scene.env_spacing = 2.5
+        self.events = None
+        self.reset_randomization = False
+        self.obs_noise = False
