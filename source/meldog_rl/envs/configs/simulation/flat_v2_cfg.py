@@ -1,12 +1,13 @@
 # Copyright (c) 2022-2025, Meldog Project
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Flat terrain V2 configuration (gait-quality + robustness package).
+"""Flat terrain V2 configuration (phase-clock gait + robustness package).
 
-Adds the Spot-ported gait-quality rewards and the retuned command/gait shaping
-on top of ``FlatSimCfg`` (Run A/A2), plus the Run B robustness package: reset
-randomization, periodic pushes, observation noise, and the tamed actuator
-(velocity_limit 12.0, action_scale 0.25).
+On top of ``FlatSimCfg``: the Run C phase-clock gait (clock observations +
+contact_schedule reward + swing-window foot clearance), the retuned command
+shaping (Run A), and the Run B robustness package: reset randomization,
+periodic pushes, observation noise, and the tamed actuator (velocity_limit
+12.0, action_scale 0.25).
 """
 
 from isaaclab.utils import configclass
@@ -23,14 +24,13 @@ class FlatSimV2Cfg(FlatSimCfg):
     - Flat sanity + strict-attitude benchmark of the V2 reward package
     """
 
-    # V2 gait-quality rewards (Spot ports)
+    # V2 gait-quality rewards. Run C: the phase-clock contact_schedule term
+    # replaces the timing-statistics terms (gait_sync / air_time_mode /
+    # air_time_variance), whose kernels kept finding degenerate optima
+    # (diagonal limp, shuffle-in-place).
     foot_slip_reward_scale = -0.5
-    gait_sync_reward_scale = 2.0
-    gait_sync_max_err = 0.5                    # Run B: was 0.2 (restore gradient in the
-                                               # degenerate one-diagonal-carries region)
-    air_time_variance_reward_scale = -1.0
-    air_time_mode_reward_scale = 1.0           # Run A2: replaces legacy feet_air_time
-    foot_clearance_reward_scale = 0.5          # terrain-relative clearance
+    contact_schedule_reward_scale = 2.0        # Run C: match contacts to the clock
+    foot_clearance_reward_scale = 0.5          # terrain-relative, swing-window form
     joint_deviation_hip_reward_scale = -0.1
 
     # Retuned command / gait shaping
@@ -40,6 +40,8 @@ class FlatSimV2Cfg(FlatSimCfg):
     # Behavior flags
     air_time_gate_full_cmd = True              # gate air-time on the full 3-dim command
     pure_rotation_fraction = 0.2               # 20% of resamples are turn-in-place
+    gait_clock = True                          # Run C: phase clock + [sin, cos] obs
+    observation_space = 237                    # 235 + 2 clock observations
 
     # Run B robustness package
     reset_randomization = True                 # yaw/joint/velocity noise at reset (inline)

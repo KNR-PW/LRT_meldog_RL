@@ -425,12 +425,20 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     foot_clearance_std = 0.05               # clearance exp kernel width
     foot_clearance_tanh_mult = 2.0          # weights clearance error by planar foot speed
     joint_deviation_hip_reward_scale = 0.0 # L1 deviation of hip-abduction (T) joints
+    contact_schedule_reward_scale = 0.0    # Run C: match feet contacts to the phase clock
 
 # -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
     # feet_air_time gate: v0 gates on norm(cmd[:2]); True gates on full 3-dim command.
     air_time_gate_full_cmd = False
     # Fraction of resampled envs given a pure-rotation command (linear zeroed, wz kept).
     pure_rotation_fraction = 0.0
+    # Run C: phase-clock gait. When True, a per-env phase in [0, 1) advances by
+    # step_dt * gait_clock_freq per policy step, [sin, cos](2*pi*phase) is appended
+    # to the observations (observation_space must be bumped by 2), the
+    # contact_schedule reward matches diagonal pairs to the clock halves, and
+    # foot_clearance switches to its swing-window form.
+    gait_clock = False
+    gait_clock_freq = 1.7                   # gait cycles per second
     # Run B: randomize reset state (yaw +/-pi, joint pos +/-0.1 rad, joint vel
     # +/-0.5, root lin vel +/-0.5 m/s xy). Inline in _reset_idx (see V2EventCfg).
     reset_randomization = False

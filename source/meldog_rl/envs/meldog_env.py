@@ -55,6 +55,11 @@ class MeldogEnv(DirectRLEnv):
         # Curriculum learning tracking (for terrain difficulty progression)
         self._initial_robot_pos = torch.zeros(self.num_envs, 3, device=self.device)
 
+        # Gait phase clock (Run C): per-env phase in [0, 1), advanced each policy
+        # step when cfg.gait_clock is enabled. Buffer always exists (no RNG cost);
+        # advancing, resetting, and observing it are all gated on the flag.
+        self._gait_phase = torch.zeros(self.num_envs, device=self.device)
+
         # Reward logging. The original 10 terms are always logged; each V2 term is
         # only added when its scale is non-zero, so v0 configs log exactly the
         # original 10 keys (bit-identical behavior + logs).
@@ -85,6 +90,7 @@ class MeldogEnv(DirectRLEnv):
                 ("air_time_mode", "air_time_mode_reward_scale"),
                 ("foot_clearance", "foot_clearance_reward_scale"),
                 ("joint_deviation_hip", "joint_deviation_hip_reward_scale"),
+                ("contact_schedule", "contact_schedule_reward_scale"),
             )
             if getattr(self.cfg, scale_attr) != 0.0
         ]
@@ -206,6 +212,12 @@ class MeldogEnv(DirectRLEnv):
         if resample_envs.any():
             self._resample_commands(resample_envs.nonzero(as_tuple=False).flatten())
 
+        # Advance the gait phase clock (Run C)
+        if self.cfg.gait_clock:
+            self._gait_phase = (
+                self._gait_phase + self.step_dt * self.cfg.gait_clock_freq
+            ) % 1.0
+
         # Debug visualization
         if self.cfg.debug_vis:
             self._visualize_commands()
@@ -311,19 +323,25 @@ class MeldogEnv(DirectRLEnv):
         height_data = height_data.clip(-1.0, 1.0)
 
         # Concatenate observation vector
-        obs = torch.cat(
-            [
-                lin_vel,                              # 3
-                ang_vel,                              # 3
-                gravity,                              # 3
-                self._commands,                        # 3
-                joint_pos,                             # 12
-                joint_vel,                             # 12
-                height_data,                          # 187 (17x11)
-                self._actions,                        # 12
-            ],
-            dim=-1,
-        )
+        obs_parts = [
+            lin_vel,                              # 3
+            ang_vel,                              # 3
+            gravity,                              # 3
+            self._commands,                        # 3
+            joint_pos,                             # 12
+            joint_vel,                             # 12
+            height_data,                          # 187 (17x11)
+            self._actions,                        # 12
+        ]
+
+        # Gait clock observations (Run C): [sin, cos] of the phase, appended last.
+        # Configs enabling this must bump observation_space by 2 (235 -> 237).
+        if self.cfg.gait_clock:
+            phase_angle = 2.0 * torch.pi * self._gait_phase
+            obs_parts.append(torch.sin(phase_angle).unsqueeze(1))  # 1
+            obs_parts.append(torch.cos(phase_angle).unsqueeze(1))  # 1
+
+        obs = torch.cat(obs_parts, dim=-1)
 
         return {"policy": obs}
 
@@ -437,6 +455,12 @@ class MeldogEnv(DirectRLEnv):
                 * self.cfg.joint_deviation_hip_reward_scale
                 * self.step_dt
             )
+        if "contact_schedule" in self._active_v2_terms:
+            rewards["contact_schedule"] = (
+                self._reward_contact_schedule()
+                * self.cfg.contact_schedule_reward_scale
+                * self.step_dt
+            )
 
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -537,12 +561,49 @@ class MeldogEnv(DirectRLEnv):
         )
         return torch.sum(reward, dim=1)
 
+    def _clock_stance_schedule(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Desired stance mask (N, 4) from the gait clock, plus the standing mask.
+
+        Diagonal trot on the clock halves: (FL, RR) in stance while phase < 0.5,
+        (FR, RL) in stance while phase >= 0.5. Standing envs (command norm < 0.1
+        AND body speed < 0.5) want all four feet in stance.
+        """
+        phase_a = self._gait_phase < 0.5
+        desired_stance = torch.stack([phase_a, ~phase_a, ~phase_a, phase_a], dim=1)
+        standing = (torch.norm(self._commands, dim=1) < 0.1) & (
+            torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1) < 0.5
+        )
+        return desired_stance, standing
+
+    def _reward_contact_schedule(self) -> torch.Tensor:
+        """Reward feet whose contact state matches the gait-clock schedule.
+
+        Mean over the four feet of (in_contact == desired_stance), in [0, 1].
+        """
+        net_forces = self._contact_sensor.data.net_forces_w_history
+        is_contact = (
+            torch.max(
+                torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1
+            )[0]
+            > 1.0
+        )
+        desired_stance, standing = self._clock_stance_schedule()
+        desired_stance = torch.where(
+            standing.unsqueeze(1), torch.ones_like(desired_stance), desired_stance
+        )
+        return (is_contact == desired_stance).float().mean(dim=1)
+
     def _reward_foot_clearance(self) -> torch.Tensor:
         """Reward swing feet clearing a target height above the terrain.
 
         Terrain-relative variant of Spot ``foot_clearance_reward``: foot height is
         taken above the nearest height-scanner grid point (feet lie inside the
         1.6x1.0 m yaw-aligned scan), so it is valid on rough terrain, not just flat.
+
+        With ``cfg.gait_clock`` (Run C) the tanh(planar-speed) weighting is dropped
+        (it rewarded millimeter lifts); instead, the height error counts only for
+        feet in their clock swing window, and only while the command is active.
+        Without the clock, the original Spot form (tanh weighting) is used.
         """
         foot_pos = self._robot.data.body_pos_w[:, self._feet_robot_ids_canon, :]
         foot_xy = foot_pos[:, :, :2]
@@ -558,11 +619,18 @@ class MeldogEnv(DirectRLEnv):
         foot_height = foot_z - terrain_z
 
         foot_z_target_error = torch.square(foot_height - self.cfg.foot_clearance_target)
-        foot_vel_tanh = torch.tanh(
-            self.cfg.foot_clearance_tanh_mult
-            * torch.norm(self._robot.data.body_lin_vel_w[:, self._feet_robot_ids_canon, :2], dim=2)
-        )
-        error = torch.sum(foot_z_target_error * foot_vel_tanh, dim=1)
+        if self.cfg.gait_clock:
+            desired_stance, standing = self._clock_stance_schedule()
+            swing_mask = ~desired_stance & ~standing.unsqueeze(1)
+            error = torch.sum(foot_z_target_error * swing_mask.float(), dim=1)
+        else:
+            foot_vel_tanh = torch.tanh(
+                self.cfg.foot_clearance_tanh_mult
+                * torch.norm(
+                    self._robot.data.body_lin_vel_w[:, self._feet_robot_ids_canon, :2], dim=2
+                )
+            )
+            error = torch.sum(foot_z_target_error * foot_vel_tanh, dim=1)
         return torch.exp(-error / self.cfg.foot_clearance_std)
 
     def _reward_joint_deviation_hip(self) -> torch.Tensor:
@@ -676,6 +744,10 @@ class MeldogEnv(DirectRLEnv):
         # Reset buffers
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
+
+        # Random initial gait phase (Run C; gated so v0 consumes no RNG on reset)
+        if self.cfg.gait_clock:
+            self._gait_phase[env_ids] = torch.rand(len(env_ids), device=self.device)
 
         # Sample new commands
         self._resample_commands(env_ids)
