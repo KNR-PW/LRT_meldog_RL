@@ -17,7 +17,12 @@ from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import ContactSensor, RayCaster, TiledCamera
-from isaaclab.utils.math import quat_apply, quat_from_angle_axis, quat_mul
+from isaaclab.utils.math import (
+    quat_apply,
+    quat_apply_inverse,
+    quat_from_angle_axis,
+    quat_mul,
+)
 
 from .configs import BaseMeldogEnvCfg
 
@@ -91,6 +96,8 @@ class MeldogEnv(DirectRLEnv):
                 ("foot_clearance", "foot_clearance_reward_scale"),
                 ("joint_deviation_hip", "joint_deviation_hip_reward_scale"),
                 ("contact_schedule", "contact_schedule_reward_scale"),
+                ("base_height", "base_height_reward_scale"),
+                ("flat_orientation_terrain", "flat_orientation_terrain_reward_scale"),
             )
             if getattr(self.cfg, scale_attr) != 0.0
         ]
@@ -461,6 +468,18 @@ class MeldogEnv(DirectRLEnv):
                 * self.cfg.contact_schedule_reward_scale
                 * self.step_dt
             )
+        if "base_height" in self._active_v2_terms:
+            rewards["base_height"] = (
+                self._reward_base_height()
+                * self.cfg.base_height_reward_scale
+                * self.step_dt
+            )
+        if "flat_orientation_terrain" in self._active_v2_terms:
+            rewards["flat_orientation_terrain"] = (
+                self._reward_flat_orientation_terrain()
+                * self.cfg.flat_orientation_terrain_reward_scale
+                * self.step_dt
+            )
 
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -632,6 +651,109 @@ class MeldogEnv(DirectRLEnv):
             )
             error = torch.sum(foot_z_target_error * foot_vel_tanh, dim=1)
         return torch.exp(-error / self.cfg.foot_clearance_std)
+
+    # =========================================================================
+    # Terrain-relative posture (Run D): base height + terrain-aligned attitude
+    # =========================================================================
+
+    def _terrain_height_under_body(self, radius: float = 0.3) -> torch.Tensor:
+        """Mean world-z of the height-scanner ray hits under the body. Shape (N,).
+
+        Averages the hits whose horizontal distance to the scanner origin (the
+        ``trunk_link`` frame, yaw-aligned scan) is within ``radius`` metres --
+        roughly the footprint directly beneath the trunk, so it is a local ground
+        reference rather than an average over the whole 1.6 x 1.0 m scan.
+
+        Missed rays come back non-finite; those are excluded. If an env has no
+        usable hit at all, its own trunk z is returned, which makes the derived
+        "height above terrain" exactly 0 instead of NaN/inf.
+        """
+        hits = self._height_scanner.data.ray_hits_w              # (N, R, 3)
+        origin = self._height_scanner.data.pos_w                 # (N, 3)
+        finite = torch.isfinite(hits).all(dim=-1)                # (N, R)
+        dist = torch.norm(hits[..., :2] - origin[:, :2].unsqueeze(1), dim=-1)
+        mask = finite & (dist <= radius)                         # NaN compares False
+        hit_z = torch.where(finite, hits[..., 2], torch.zeros_like(hits[..., 2]))
+        count = mask.sum(dim=1)
+        mean_z = (hit_z * mask).sum(dim=1) / count.clamp(min=1)
+        return torch.where(count > 0, mean_z, origin[:, 2])
+
+    def _terrain_normal_b(self) -> torch.Tensor:
+        """Unit normal of the local terrain plane, in the body frame. Shape (N, 3).
+
+        The height scanner is a yaw-aligned 17x11 grid at 0.1 m spacing, so its ray
+        hits sample the ground under and around the robot. A plane
+        ``z = a*x + b*y + c`` is fitted to those hits by (masked) least squares in
+        world coordinates -- solved from the 3x3 normal equations with a tiny ridge
+        term, which both keeps the batched solve non-singular and makes an env with
+        no usable hits fall back to a level plane. Coordinates are centred on the
+        scanner origin and on ``_terrain_height_under_body()`` so the fit works on
+        small numbers regardless of where the env sits in the world.
+
+        The world normal ``(-a, -b, 1)`` is normalised and rotated into the body
+        frame. On flat terrain it equals ``-projected_gravity_b`` (world up in body
+        coordinates), which is what makes the terrain-relative orientation penalty
+        collapse onto the legacy gravity-based one.
+        """
+        hits = self._height_scanner.data.ray_hits_w              # (N, R, 3)
+        origin = self._height_scanner.data.pos_w                 # (N, 3)
+        finite = torch.isfinite(hits).all(dim=-1)                # (N, R)
+        w = finite.float()
+
+        dx = torch.where(finite, hits[..., 0] - origin[:, 0:1], torch.zeros_like(w))
+        dy = torch.where(finite, hits[..., 1] - origin[:, 1:2], torch.zeros_like(w))
+        z0 = self._terrain_height_under_body()
+        dz = torch.where(finite, hits[..., 2] - z0.unsqueeze(1), torch.zeros_like(w))
+
+        # Normal equations for min_a,b,c sum_i w_i (a*dx + b*dy + c - dz)^2
+        sxx = (w * dx * dx).sum(dim=1)
+        sxy = (w * dx * dy).sum(dim=1)
+        syy = (w * dy * dy).sum(dim=1)
+        sx = (w * dx).sum(dim=1)
+        sy = (w * dy).sum(dim=1)
+        s1 = w.sum(dim=1)
+        rx = (w * dx * dz).sum(dim=1)
+        ry = (w * dy * dz).sum(dim=1)
+        rz = (w * dz).sum(dim=1)
+
+        mat = torch.stack(
+            [
+                torch.stack([sxx, sxy, sx], dim=-1),
+                torch.stack([sxy, syy, sy], dim=-1),
+                torch.stack([sx, sy, s1], dim=-1),
+            ],
+            dim=-2,
+        )  # (N, 3, 3), symmetric PSD
+        eye = torch.eye(3, device=self.device, dtype=mat.dtype).expand_as(mat)
+        coeffs = torch.linalg.solve(mat + 1.0e-6 * eye, torch.stack([rx, ry, rz], dim=-1))
+        a, b = coeffs[:, 0], coeffs[:, 1]
+
+        normal_w = torch.stack([-a, -b, torch.ones_like(a)], dim=-1)
+        normal_w = normal_w / torch.norm(normal_w, dim=-1, keepdim=True).clamp(min=1.0e-6)
+        return quat_apply_inverse(self._robot.data.root_quat_w, normal_w)
+
+    def _reward_base_height(self) -> torch.Tensor:
+        """L2 error between the trunk height above terrain and the target height.
+
+        Trunk height is the ``trunk_link`` world z (the height scanner's own frame
+        pose, which excludes the sensor's +20 m ray offset) minus the mean terrain
+        height under the body. Pair with a negative scale to make it a penalty.
+        """
+        height = self._height_scanner.data.pos_w[:, 2] - self._terrain_height_under_body()
+        return torch.square(height - self.cfg.base_height_target)
+
+    def _reward_flat_orientation_terrain(self) -> torch.Tensor:
+        """Penalize body tilt relative to the *terrain* plane (not to gravity).
+
+        Squared sine of the angle between the body's up axis and the fitted terrain
+        normal, i.e. the squared xy-components of the terrain normal expressed in the
+        body frame. Zero when the trunk is parallel to the local ground, so on a slope
+        the robot is asked to lean *with* the slope -- unlike ``flat_orientation_l2``,
+        which pays only for staying gravity-level. On flat terrain the two terms are
+        identical. Pair with a negative scale to make it a penalty.
+        """
+        normal_b = self._terrain_normal_b()
+        return torch.sum(torch.square(normal_b[:, :2]), dim=1)
 
     def _reward_joint_deviation_hip(self) -> torch.Tensor:
         """L1 deviation of the hip-abduction (T) joints from their default pose."""

@@ -33,9 +33,19 @@ class FlatSimV2Cfg(FlatSimCfg):
     foot_clearance_reward_scale = 0.5          # terrain-relative, swing-window form
     joint_deviation_hip_reward_scale = -0.1
 
+    # Run D posture package: stand at the measured nominal height, and tilt WITH the
+    # terrain instead of holding gravity-level (the legacy gravity term is switched
+    # off; on flat ground the terrain-relative term reduces to it exactly).
+    base_height_reward_scale = -2.0            # target = cfg.base_height_target (0.34 m)
+    # -5.0 preserves FlatSimCfg's original level-keeping weight: on flat ground the
+    # terrain-relative term is mathematically identical to flat_orientation_l2, so
+    # anything less would be a silent weight cut (rough uses -1.0, as before).
+    flat_orientation_terrain_reward_scale = -5.0
+
     # Retuned command / gait shaping
     feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
     yaw_rate_reward_scale = 1.5                # was 0.7 (parity with linear tracking)
+    flat_orientation_reward_scale = 0.0        # Run D: replaced by flat_orientation_terrain (was -5.0)
 
     # Behavior flags
     air_time_gate_full_cmd = True              # gate air-time on the full 3-dim command

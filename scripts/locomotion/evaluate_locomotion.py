@@ -204,7 +204,7 @@ def main():
     sensor_perm = robot_perm = None
     feet_sensor_ids = feet_robot_ids = None
     foot_names_canonical = None
-    has_terrain_levels = has_terrain_types = False
+    has_terrain_levels = has_terrain_types = has_posture = False
     terrain = None
     if args_cli.record:
         tag = (args_cli.task
@@ -231,7 +231,17 @@ def main():
             "joint_pos", "joint_vel", "applied_torque", "actions", "commands",
             "foot_forces_w", "feet_forces_max", "foot_pos_w", "foot_vel_w",
             "dones", "time_outs", "terrain_levels", "terrain_types",
+            "terrain_height_under_body", "base_height", "terrain_normal_b",
         )}
+
+        # Run D posture channel (optional): requires the terrain-relative helpers on
+        # the env. Older envs simply don't record it and the analyzer skips the
+        # posture.* metrics -- both directions are backward compatible.
+        has_posture = hasattr(raw_env, "_terrain_height_under_body") and hasattr(
+            raw_env, "_terrain_normal_b")
+        if not has_posture:
+            print("[WARN] env has no terrain-relative posture helpers; "
+                  "skipping terrain_height_under_body / base_height / terrain_normal_b.")
 
         # Terrain bookkeeping availability
         terrain = raw_env._terrain
@@ -309,6 +319,15 @@ def main():
                     rec["terrain_levels"].append(terrain.terrain_levels.cpu().numpy().astype(np.int16))
                 if has_terrain_types:
                     rec["terrain_types"].append(terrain.terrain_types.cpu().numpy().astype(np.int16))
+                if has_posture:
+                    # Run D posture channel: local ground reference under the trunk,
+                    # the trunk height above it, and the fitted terrain-plane normal
+                    # expressed in the body frame (analyzer -> posture.*).
+                    terrain_z = raw_env._terrain_height_under_body()
+                    rec["terrain_height_under_body"].append(terrain_z.cpu().numpy())
+                    rec["base_height"].append(
+                        (raw_env._height_scanner.data.pos_w[:, 2] - terrain_z).cpu().numpy())
+                    rec["terrain_normal_b"].append(raw_env._terrain_normal_b().cpu().numpy())
 
             if torch.any(dones):
                 done_indices = torch.nonzero(dones).flatten()
@@ -439,6 +458,12 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
         if rec["terrain_types"]:
             f.create_dataset("terrain_types",
                              data=np.stack(rec["terrain_types"], axis=0).astype(np.int16), **gzip)
+
+        # Run D posture channel (absent on rollouts recorded before the terrain-
+        # relative helpers existed; the analyzer treats it as optional).
+        for key in ("terrain_height_under_body", "base_height", "terrain_normal_b"):
+            if rec[key]:
+                f.create_dataset(key, data=stack(key), **gzip)
 
         # -------- attributes --------
         a = f.attrs

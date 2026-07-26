@@ -426,6 +426,14 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     foot_clearance_tanh_mult = 2.0          # weights clearance error by planar foot speed
     joint_deviation_hip_reward_scale = 0.0 # L1 deviation of hip-abduction (T) joints
     contact_schedule_reward_scale = 0.0    # Run C: match feet contacts to the phase clock
+    # Run D posture terms. base_height penalizes (trunk height above terrain -
+    # target)^2; flat_orientation_terrain penalizes tilt relative to the LOCAL
+    # TERRAIN PLANE (fitted from the height scanner) instead of to gravity, so the
+    # robot may lean with a slope. On flat ground the latter is identical to
+    # flat_orientation_l2 -- V2 configs therefore run one or the other, not both.
+    base_height_reward_scale = 0.0         # Run D: L2 penalty on trunk height error
+    base_height_target = 0.34               # measured nominal standing height (m)
+    flat_orientation_terrain_reward_scale = 0.0  # Run D: terrain-relative orientation
 
 # -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
     # feet_air_time gate: v0 gates on norm(cmd[:2]); True gates on full 3-dim command.

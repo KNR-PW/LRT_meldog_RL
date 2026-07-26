@@ -492,6 +492,32 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     m["swing_apex"] = swing_apex
     m["swing_knee"] = swing_knee
 
+    # --- posture: trunk height above terrain + attitude vs the terrain plane ---
+    # Optional Run D channel. Rollouts recorded before it exists simply leave these
+    # None, and every posture.* metric then aggregates to null.
+    # ``terrain_normal_b`` is the local terrain-plane normal in body coordinates; the
+    # tilt of the body relative to that plane decomposes exactly like world roll/pitch
+    # does against (0,0,1), so on flat ground these reproduce attitude.roll/pitch.
+    m["base_height"] = m["base_height_std"] = None
+    m["pitch_terrain_rel_mean"] = m["pitch_terrain_rel_std"] = None
+    m["roll_terrain_rel_mean"] = m["roll_terrain_rel_std"] = None
+    if "base_height" in data:
+        bh = np.asarray(data["base_height"][s:end, e], dtype=float)
+        bh = bh[np.isfinite(bh)]
+        if bh.size:
+            m["base_height"] = float(np.mean(bh))
+            m["base_height_std"] = float(np.std(bh))
+    if "terrain_normal_b" in data:
+        nb = np.asarray(data["terrain_normal_b"][s:end, e], dtype=float)  # (L,3)
+        nb = nb[np.isfinite(nb).all(axis=1)]
+        if nb.size:
+            pitch_rel = np.arcsin(np.clip(-nb[:, 0], -1.0, 1.0))
+            roll_rel = np.arctan2(nb[:, 1], nb[:, 2])
+            m["pitch_terrain_rel_mean"] = float(np.mean(pitch_rel))
+            m["pitch_terrain_rel_std"] = float(np.std(pitch_rel))
+            m["roll_terrain_rel_mean"] = float(np.mean(roll_rel))
+            m["roll_terrain_rel_std"] = float(np.std(roll_rel))
+
     # --- smoothness ---
     if len(act) > 1:
         m["action_rate"] = float(np.mean(np.abs(np.diff(act, axis=0))))
@@ -571,6 +597,15 @@ def build_metrics(data, segments):
             "foot_order": "FL,FR,RL,RR",
             "apex_height": aggregate_array(col("swing_apex"), 4),
             "knee_excursion": aggregate_array(col("swing_knee"), 4),
+        },
+        # Trend metrics (no bands). Null on rollouts without the Run D datasets.
+        "posture": {
+            "base_height": aggregate(col("base_height")),
+            "base_height_std": aggregate(col("base_height_std")),
+            "pitch_terrain_rel_mean": aggregate(col("pitch_terrain_rel_mean")),
+            "pitch_terrain_rel_std": aggregate(col("pitch_terrain_rel_std")),
+            "roll_terrain_rel_mean": aggregate(col("roll_terrain_rel_mean")),
+            "roll_terrain_rel_std": aggregate(col("roll_terrain_rel_std")),
         },
         "smooth": {
             "action_rate": aggregate(col("action_rate")),
@@ -776,6 +811,47 @@ def plot_swing(data, seg, dt, out_path, k_idx):
     plt.close(fig)
 
 
+def has_posture(data):
+    """True when the rollout carries the Run D terrain-relative posture datasets."""
+    return "base_height" in data and "terrain_normal_b" in data
+
+
+def plot_posture(data, seg, dt, out_path):
+    """Trunk height above terrain and body attitude relative to the terrain plane."""
+    e, s, end = seg["env"], seg["start"], seg["end"]
+    t = np.arange(end - s) * dt
+    bh = np.asarray(data["base_height"][s:end, e], dtype=float)
+    nb = np.asarray(data["terrain_normal_b"][s:end, e], dtype=float)
+    pitch_rel = np.arcsin(np.clip(-nb[:, 0], -1.0, 1.0))
+    roll_rel = np.arctan2(nb[:, 1], nb[:, 2])
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
+    axes[0].plot(t, bh, color="#2166ac", lw=1.2, label="trunk height above terrain")
+    axes[0].axhline(np.mean(bh), color="#2166ac", ls=":", lw=1.0,
+                    label=f"mean {np.mean(bh):.3f} m")
+    axes[0].set_ylabel("Height (m)")
+    axes[0].set_title(f"Posture  (env {e}; terrain-relative, trend metrics)")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(loc="upper right", fontsize=8)
+
+    axes[1].plot(t, roll_rel, color="#762a83", lw=1.2, label="roll vs terrain")
+    axes[1].plot(t, pitch_rel, color="#1b7837", lw=1.2, label="pitch vs terrain")
+    axes[1].axhline(np.mean(roll_rel), color="#762a83", ls=":", lw=1.0,
+                    label=f"roll mean {np.mean(roll_rel):+.3f}")
+    axes[1].axhline(np.mean(pitch_rel), color="#1b7837", ls=":", lw=1.0,
+                    label=f"pitch mean {np.mean(pitch_rel):+.3f}")
+    axes[1].axhline(0.0, color="0.6", lw=0.8)
+    axes[1].set_xlabel("Time (s)")
+    axes[1].set_ylabel("Angle (rad)")
+    axes[1].set_title("Attitude relative to the fitted terrain plane "
+                      "(0 = trunk parallel to local ground)")
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(loc="upper right", fontsize=8, ncol=2)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------------------
 # report.md
 # ---------------------------------------------------------------------------
@@ -824,8 +900,8 @@ def write_report(metrics, out_path):
     lines.append("## Metrics (mean +/- std across episodes)\n")
     lines.append("Flags vs `agentic/benchmarks.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
                  "(advisory — attitude/impact bands assume the flat/benchmark scenario). "
-                 "Trend metrics (smooth.*, swing.*) and un-banded rows (marked `trend`) carry "
-                 "no flag.\n")
+                 "Trend metrics (smooth.*, swing.*, posture.*) and un-banded rows (marked "
+                 "`trend`) carry no flag.\n")
     lines.append("| metric | value | flag |")
     lines.append("|---|---|---|")
     lines.append(f"| tracking.lin_err (vx,vy) | {fmt(L['tracking']['lin_err'], unit=' m/s')} | {fl('tracking.lin_err')} |")
@@ -848,13 +924,24 @@ def write_report(metrics, out_path):
     lines.append(f"| impact.touchdown_vel | {fmt(L['impact']['touchdown_vel'], unit=' m/s')} | {fl('impact.touchdown_vel')} |")
     lines.append(f"| swing.apex_height [FL,FR,RL,RR] | {fmt_array(L['swing']['apex_height'], unit=' m')} | trend |")
     lines.append(f"| swing.knee_excursion [FL,FR,RL,RR] | {fmt_array(L['swing']['knee_excursion'], unit=' rad')} | trend |")
+    P = L.get("posture") or {}
+    if P.get("base_height") is not None or P.get("pitch_terrain_rel_mean") is not None:
+        lines.append(f"| posture.base_height (trunk above terrain) | {fmt(P['base_height'], unit=' m')} | trend |")
+        lines.append(f"| posture.base_height_std (within episode) | {fmt(P['base_height_std'], unit=' m')} | trend |")
+        lines.append(f"| posture.pitch_terrain_rel_mean | {fmt(P['pitch_terrain_rel_mean'], unit=' rad')} | trend |")
+        lines.append(f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | trend |")
+        lines.append(f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | trend |")
+        lines.append(f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | trend |")
     lines.append(f"| smooth.action_rate | {fmt(L['smooth']['action_rate'])} |  |")
     lines.append(f"| smooth.joint_acc | {fmt(L['smooth']['joint_acc'], unit=' rad/s^2')} |  |")
     lines.append(f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |")
     lines.append(f"| actuator.vel_sat_pct | {fmt(L['actuator']['vel_sat_pct'], unit=' %')} | {fl('actuator.vel_sat_pct')} |")
     lines.append(f"| energy.cost_of_transport | {fmt(L['energy']['cost_of_transport'])} | {fl('energy.cost_of_transport')} |")
     lines.append("\n## Plots\n")
-    for p in ("gait_diagram", "tracking", "attitude", "actions", "swing"):
+    plots = ["gait_diagram", "tracking", "attitude", "actions", "swing"]
+    if P.get("base_height") is not None:
+        plots.append("posture")
+    for p in plots:
         lines.append(f"![{p}](plots/{p}.png)\n")
 
     out_path.write_text("\n".join(lines))
@@ -915,6 +1002,11 @@ def main():
     plot_attitude(data, seg, dt, plots_dir / "attitude.png")
     plot_actions(data, seg, dt, plots_dir / "actions.png")
     plot_swing(data, seg, dt, plots_dir / "swing.png", resolve_k_idx(data["_attrs"]))
+    if has_posture(data):
+        plot_posture(data, seg, dt, plots_dir / "posture.png")
+    else:
+        print("[INFO] No terrain-relative posture datasets in this rollout "
+              "(pre-Run-D recorder); skipping posture metrics and plot.")
     print(f"[INFO] Wrote plots to {plots_dir}")
 
     write_report(metrics, out_dir / "report.md")
