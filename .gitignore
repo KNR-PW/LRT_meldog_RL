@@ -64,8 +64,24 @@ _build
 # Teleop Recorded Dataset
 /datasets/
 
-# Tests
-tests/
+# Literature PDFs (copyright, public repo) - track literature/INDEX.md and summaries instead
+/literature/*.pdf
+
+# LaTeX build outputs (thesis/main.pdf is tracked on purpose)
+/thesis/*.aux
+/thesis/*.app
+/thesis/*.bbl
+/thesis/*.bbl-SAVE-ERROR
+/thesis/*.bcf
+/thesis/*.blg
+/thesis/*.fdb_latexmk
+/thesis/*.fls
+/thesis/*.lof
+/thesis/*.lot
+/thesis/*.out
+/thesis/*.run.xml
+/thesis/*.synctex.gz
+/thesis/*.toc
 
 # Docker history
 .isaac-lab-docker-history
