@@ -13,6 +13,8 @@ train, evaluate, analyze and release locomotion and perception models.
   files over 2 MB outside LFS, private keys, conflict markers, broken YAML/TOML).
 - Run every script from the repository root inside the Isaac Lab environment, e.g.
   `conda activate <isaac-env>` and `source <IsaacLab>/_isaac_sim/setup_conda_env.sh`.
+- The robot model (USD) is not in the repository: set `MELDOG_USD_PATH` to the Meldog
+  USD file, or copy it to `assets/robots/meldog/Meldog-1.4-no-ground-plane.usd`.
 - Isaac-free unit tests: `python tests/test_heightmap_transform.py` and
   `python tests/test_elevation_mapper.py`.
 
@@ -148,14 +150,15 @@ ground-truth height maps.
 python scripts/perception/collect_dataset.py \
     --task Meldog-RL-Dataset-Rough-v0 \
     --checkpoint releases/locomotion/v1.0-rough/model.pt \
-    --num_samples 10000
+    --max_steps 10000
 ```
 
 ### B. Perception training (`train_perception.py`)
-Trains a perception model offline on the collected H5 dataset.
+Trains a perception model offline on a collected `dataset.h5` (`--dataset auto` picks the
+latest one).
 ```bash
 python scripts/perception/train_perception.py \
-    --dataset datasets/PD_rough_.../ \
+    --dataset datasets/PD_rough_.../dataset.h5 \
     --model heightmap_v5 \
     --epochs 100 \
     --workers 8 \

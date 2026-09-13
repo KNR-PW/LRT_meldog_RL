@@ -5,7 +5,7 @@
 """Offline, sim-free analysis of a locomotion rollout.
 
 Consumes ``rollout.h5`` (produced by ``evaluate_locomotion.py --record``) and emits
-the agent-facing artifact set into the same evaluation directory:
+the evaluation artifact set into the same evaluation directory:
 
     metrics.json   # stable schema, per-episode metrics -> mean +/- std
     report.md      # skimmable rendering of the metric table
@@ -55,7 +55,7 @@ MAX_PERIOD_S = 2.0
 MIN_AUTOCORR_PEAK = 0.25
 
 # ---------------------------------------------------------------------------
-# Benchmark reference bands (Phase B3)
+# Benchmark reference ranges
 # ---------------------------------------------------------------------------
 # Thresholds are copied from docs/evaluation.md -- that markdown file is the
 # human-readable source of truth; this dict must be kept in sync with it by hand

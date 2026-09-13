@@ -35,7 +35,7 @@ class RoughSimV2Cfg(RoughSimCfg):
     # ground" defect is FOOT LIFT, not body height -- v1.0-rough lifts its feet
     # 14.3 cm (p50) vs run C's 5-8 cm apex, while both stand at the same 0.30 m.
     # Scale 0.5 -> 2.0 with std 0.05 makes a 5 cm clearance shortfall cost ~0.2/step,
-    # ~15 % of the +1.3/step contact_schedule (see the reward-magnitude rule).
+    # ~15 % of the +1.3/step contact_schedule.
     foot_clearance_reward_scale = 2.0          # terrain-relative, swing-window form
     # Target is the foot BODY ORIGIN height above terrain; that origin sits ~3.6 cm
     # above ground in contact (collision radius), so the old 0.08 asked for only
@@ -116,15 +116,15 @@ class RoughSimV2Cfg_PLAY(RoughSimV2Cfg):
 
 @configclass
 class RoughSimV2D1Cfg(RoughSimV2Cfg):
-    """Run D1 weights — the variant the human rated best (2026-07-26).
+    """Run D1 weights — the variant rated best in video review (2026-07-26).
 
     Same phase-clock gait + robustness package as ``RoughSimV2Cfg``, but with the
     run-D posture/clearance weights restored. Kept as its own class (and task id)
-    so the overnight queue can run D1 and D4 back-to-back without editing configs
+    so D1 and D4 can be trained back-to-back without editing configs
     between runs.
 
     Why these values: D1 measured the best efficiency of any V2 run (CoT 0.93,
-    torque saturation 9.0 %) and the best tracking (lin_err 0.073), and the human
+    torque saturation 9.0 %) and the best tracking (lin_err 0.073), and the video
     review preferred its foot placement -- D3's clearance weight of 2.0 produced a
     visible "vibrating around the target height" artifact, and its taller target
     dropped the body to 0.246 m (D1: 0.270, baseline: 0.299).

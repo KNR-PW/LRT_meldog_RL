@@ -5,7 +5,7 @@
 """Offline, sim-free analyzer for perception evaluation rollouts.
 
 Consumes the ``data.h5`` dumped by ``evaluate_perception.py`` / ``evaluate_slam.py``
-and produces machine-readable metrics + static plots that agents can read directly,
+and produces machine-readable metrics + static plots that can be inspected directly,
 without relaunching Isaac Sim. Runs anywhere in seconds (numpy + h5py + matplotlib,
 **no isaaclab / torch imports**).
 
@@ -92,7 +92,7 @@ SENTINEL_THRESH = -1.9  # meters
 RESET_JUMP_M = 0.5  # meters
 
 # --------------------------------------------------------------------------- #
-# Benchmark bands (Phase B3)
+# Benchmark reference ranges
 # --------------------------------------------------------------------------- #
 # Thresholds copied from docs/evaluation.md (the human-readable source of truth;
 # do NOT parse that markdown at runtime — keep these in sync by hand). Perception
@@ -370,7 +370,7 @@ def _nan_to_none(arr) -> list:
 
 
 def compute_metrics(data: dict, n_radial: int = 4) -> dict:
-    """Compute the Phase B2 perception metric set. Errors are in meters.
+    """Compute the perception metric set. Errors are in meters.
 
     All error metrics exclude no-data sentinel cells (pred < SENTINEL_THRESH);
     ``coverage`` reports the fraction of cells that carry a real estimate.
@@ -628,7 +628,7 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
     lines.append(f"- Inputs: {meta['num_episodes']} env(s), {meta['num_steps']} steps each")
     lines.append("")
 
-    # Schema notes (feeds Phase A3).
+    # Schema notes.
     lines.append("## Schema")
     for label, _m, schema in results:
         notes = "; ".join(schema.get("notes", [])) or "matches current dump format"
@@ -734,7 +734,7 @@ def _git_commit() -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Sim-free perception evaluation analyzer (Phase B2)."
+        description="Sim-free perception evaluation analyzer."
     )
     parser.add_argument("inputs", nargs="+", help="One or two perception data.h5 files.")
     parser.add_argument("-o", "--output", default=None,

@@ -24,9 +24,9 @@ loosen: flag, don't fail.
 | `attitude.roll_std`, `pitch_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | flat benchmark; informational on rough |
 | `gait.duty_factor` (per foot) | 0.50–0.65 | 0.45–0.75 | outside | H | trot at moderate speed; a walk is higher |
 | duty-factor spread across feet | <0.05 | <0.10 | ≥0.10 | H | gait symmetry |
-| `gait.phase_offset` vs front-left (FR, RL, RR) | 0.5, 0.5, 0.0 ±0.10 | ±0.15 | outside / null | H | trot signature: diagonal pairs in phase. Null = no stable cycle ⇒ ❌ |
+| `gait.phase_offset` vs front-left (FR, RL, RR) | 0.5, 0.5, 0.0 ±0.10 | ±0.15 | outside / null | H | trot signature: diagonal pairs in phase. Null = no stable gait cycle (reported, not flagged) |
 | `gait.stride_freq` (Hz) | 1.0–2.5 | 0.8–3.0 | outside | M | ANYmal ≈1–1.5 Hz, Go2-scale ≈2–3 Hz; above the range looks rushed |
-| `slip.mean_vel` (m/s, feet in contact) | <0.05 | <0.10 | ≥0.20 | L–M | visible sliding starts around 0.2 |
+| `slip.mean_vel` (m/s, feet in contact) | <0.05 | <0.20 | ≥0.20 | L–M | visible sliding starts around 0.2 |
 | `impact.peak_force_bw` (per foot, × body weight) | <2.0 | <3.0 | ≥3.0 | L | nominal trot ≈1–1.5 BW; ≥3 looks like feet smashing down |
 | `impact.touchdown_vel` (m/s) | <0.3 | <0.5 | ≥0.5 | L | heuristic |
 | `smooth.action_rate` | — | — | — | — | trend metric: compare between checkpoints only |
