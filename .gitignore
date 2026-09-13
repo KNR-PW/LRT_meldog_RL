@@ -83,6 +83,13 @@ _build
 /thesis/*.synctex.gz
 /thesis/*.toc
 
+# Private agentic workspace: separate repo cloned into agentic/, plus its root links (see agentic/README.md)
+/agentic/
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/directory.md
+
 # Docker history
 .isaac-lab-docker-history
 __pycache__/
