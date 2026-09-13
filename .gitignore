@@ -64,8 +64,8 @@ _build
 # Teleop Recorded Dataset
 /datasets/
 
-# Literature PDFs (copyright, public repo) - track literature/INDEX.md and summaries instead
-/literature/*.pdf
+# Literature PDFs (copyright, public repo) - local only
+/literature/**/*.pdf
 
 # LaTeX build outputs (thesis/main.pdf is tracked on purpose)
 /thesis/*.aux

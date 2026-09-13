@@ -4,7 +4,7 @@
 **Source Log:** LM_rough_simd1_2026-07-26_23-47-04_f168275
 **Checkpoint:** model_10000.pt (run went to model_11999, which was never benchmarked)
 **Task:** Meldog-RL-Locomotion-Rough-SimD1-v1
-**Code commit:** f168275 (clean tree, see `git_info.yaml`; commit hashes before the 2026-09-13 history rewrite, see `agentic/sha-map-2026-09.txt`)
+**Code commit:** f168275 at training time (clean tree, see `git_info.yaml`), 26d2828 after the 2026-09-13 history rewrite (`agentic/sha-map-2026-09.txt`)
 
 ## Release Notes
 Best Locomotion V2 policy so far: phase-clock trot on rough terrain, privileged (ground-truth) height scan.
@@ -19,9 +19,9 @@ The benchmark is deterministic: the 2026-07-27 run and two runs on 2026-09-13 ga
 |---|---|---|
 | survival_rate | 1.00 | 1.00 |
 | tracking.lin_err (m/s) | 0.072 | 0.039 |
-| tracking.ang_err (rad/s) | 0.220 | 0.224 |
+| tracking.ang_err (rad/s) | 0.220 | 0.223 |
 | gait.duty_factor_spread | 0.072 | 0.349 |
-| gait.phase_offset (FR, RL, RR vs FL) | 0.51, 0.51, 0.00 | 0.66, 0.36, 0.69 |
+| gait.phase_offset (FR, RL, RR vs FL) | 0.51, 0.51, 0.00 | 0.66, 0.36, 0.68 |
 | gait.stride_freq (Hz) | 1.72 | 1.08 |
 | slip.mean_vel (m/s) | 0.062 | 0.066 |
 | posture.base_height (m) | 0.288 | 0.299 |
