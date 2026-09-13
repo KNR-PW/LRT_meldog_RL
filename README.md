@@ -66,11 +66,12 @@ Built on Isaac Lab's direct workflow template. Here's where key components live:
 ## Installation
 
 This project is built on the [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) template.
-
-TBD
+Setup (Isaac Lab, editable install, Git LFS for model weights): see [docs/manual.md](docs/manual.md#0-setup).
 
 ## Usage
-TBD
+- [docs/manual.md](docs/manual.md): tasks, training, evaluation, perception pipeline, releases, analyzers
+- [docs/evaluation.md](docs/evaluation.md): evaluation metrics and their reference ranges
+- [docs/eval_rubric.md](docs/eval_rubric.md): checklist for judging videos
 
 ## Acknowledgments
 

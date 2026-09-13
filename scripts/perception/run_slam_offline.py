@@ -7,7 +7,7 @@
 The SLAM baselines are sim-free, so they can be re-run on the sparse maps + poses
 already stored in any evaluation dump. This produces a SLAM data.h5 on the
 IDENTICAL trajectory as the source run — the same-trajectory model-vs-SLAM
-comparison that agentic/benchmarks.md marks mandatory for the thesis claims:
+comparison that docs/evaluation.md marks mandatory for the thesis claims:
 
     # 1. record a model run
     evaluate_perception.py --method model --perception_checkpoint ... -> MODEL/data.h5

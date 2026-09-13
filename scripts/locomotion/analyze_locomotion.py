@@ -57,7 +57,7 @@ MIN_AUTOCORR_PEAK = 0.25
 # ---------------------------------------------------------------------------
 # Benchmark reference bands (Phase B3)
 # ---------------------------------------------------------------------------
-# Thresholds are copied from agentic/benchmarks.md -- that markdown file is the
+# Thresholds are copied from docs/evaluation.md -- that markdown file is the
 # human-readable source of truth; this dict must be kept in sync with it by hand
 # (do NOT parse the markdown at runtime). Each "lt"/"abs_lt" band is (good_cut,
 # investigate_cut): value < good_cut -> good, < investigate_cut -> acceptable, else
@@ -151,7 +151,7 @@ def _flag_phase_offset(agg):
 
 
 def compute_flags(meta, loco):
-    """Map metric keys -> 'good'|'acceptable'|'investigate' per agentic/benchmarks.md.
+    """Map metric keys -> 'good'|'acceptable'|'investigate' per docs/evaluation.md.
 
     Only metrics with a band and a non-null value get a flag. Trend metrics
     (smooth.*) and un-banded metrics are omitted.
@@ -898,7 +898,7 @@ def write_report(metrics, out_path):
         if sr is not None else "- survival_rate: n/a\n")
 
     lines.append("## Metrics (mean +/- std across episodes)\n")
-    lines.append("Flags vs `agentic/benchmarks.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
+    lines.append("Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
                  "(advisory — attitude/impact bands assume the flat/benchmark scenario). "
                  "Trend metrics (smooth.*, swing.*, posture.*) and un-banded rows (marked "
                  "`trend`) carry no flag.\n")

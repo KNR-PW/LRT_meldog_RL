@@ -94,15 +94,15 @@ RESET_JUMP_M = 0.5  # meters
 # --------------------------------------------------------------------------- #
 # Benchmark bands (Phase B3)
 # --------------------------------------------------------------------------- #
-# Thresholds copied from agentic/benchmarks.md (the human-readable source of truth;
+# Thresholds copied from docs/evaluation.md (the human-readable source of truth;
 # do NOT parse that markdown at runtime — keep these in sync by hand). Perception
 # bands are thesis-internal orderings, so we only flag what a single run can
 # support (rmse_visible absolute floor; occluded-vs-visible ratio). The model<SLAM
 # comparison checks are emitted only when two inputs are supplied.
 FLAG_EMOJI = {"good": "✅", "acceptable": "⚠️", "investigate": "❌"}
-RMSE_VISIBLE_GOOD = 0.05        # m, benchmarks.md "rmse_visible < 0.05 m"
+RMSE_VISIBLE_GOOD = 0.05        # m, evaluation.md "rmse_visible < 0.05 m"
 RMSE_VISIBLE_ACCEPTABLE = 0.10  # 2x soft margin -> ⚠️ tier
-OCCLUDED_VS_VISIBLE_MAX = 4.0   # benchmarks.md "rmse_occluded <= 4x rmse_visible"
+OCCLUDED_VS_VISIBLE_MAX = 4.0   # evaluation.md "rmse_occluded <= 4x rmse_visible"
 
 
 def _finite(x):
@@ -114,7 +114,7 @@ def _finite(x):
 
 
 def compute_perception_flags(results):
-    """Map metric keys -> good/acceptable/investigate per agentic/benchmarks.md.
+    """Map metric keys -> good/acceptable/investigate per docs/evaluation.md.
 
     ``results`` is a list of (label, metrics, schema). Single-run flags come from the
     primary (first) input; model<SLAM comparison flags are added only when exactly two
@@ -642,7 +642,7 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
 
     # Metrics table (single or side-by-side).
     lines.append("## Metrics")
-    lines.append("Flags vs `agentic/benchmarks.md`: ✅ good · ⚠️ acceptable · ❌ investigate. "
+    lines.append("Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate. "
                  "Perception bands are thesis-internal; only single-run-computable checks are "
                  "flagged here (model<SLAM comparisons appear only with two inputs).\n")
     if len(results) == 1:
