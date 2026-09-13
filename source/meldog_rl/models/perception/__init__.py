@@ -8,6 +8,7 @@ from .common import ConvGRU, ConvGRUCell, HybridTerrainLoss, augment_sequence, a
 from .heightmap_convgru import HeightmapConvGRU
 from .heightmap_autoreg import HeightmapAutoregressive, transform_height_map_with_mask
 from .slam_baseline import SLAMBaseline
+from .elevation_mapper import ElevationMapper
 
 # TODO: VoxelSparse
 
@@ -19,6 +20,7 @@ __all__ = [
     "HeightmapConvGRU",
     "HeightmapAutoregressive",
     "SLAMBaseline",
+    "ElevationMapper",
     # "VoxelSparse",
     # Common
     "ConvGRU",

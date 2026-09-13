@@ -34,7 +34,11 @@ def transform_height_map_with_mask(
     curr_yaw: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Transform previous height map AND valid mask from prev robot frame to current.
-    
+
+    Grid convention (must match DepthProjector): row 0 = front (+x), row H-1 = back;
+    col 0 = left (+y), col W-1 = right. Heights are relative to the robot base z, so
+    the base-height change between frames is subtracted from the shifted map.
+
     Args:
         prev_map: (B, 1, H, W) height map in previous robot frame
         prev_valid: (B, 1, H, W) validity mask (1=valid data, 0=no data)
@@ -42,53 +46,45 @@ def transform_height_map_with_mask(
         prev_yaw: (B,) previous robot yaw
         curr_pos: (B, 3) current robot position (world frame)
         curr_yaw: (B,) current robot yaw
-        
+
     Returns:
         transformed_map: (B, 1, H, W) height map in current robot frame
         transformed_valid: (B, 1, H, W) validity mask in current robot frame
     """
     B, _, H, W = prev_map.shape
     device = prev_map.device
-    
+
     # Relative transform: how did robot move from prev to curr?
     delta_pos_world = curr_pos[:, :2] - prev_pos[:, :2]
     delta_yaw = curr_yaw - prev_yaw
-    
-    # Transform delta_pos to previous robot frame
-    cos_prev = torch.cos(-prev_yaw)
-    sin_prev = torch.sin(-prev_yaw)
-    delta_x_robot = delta_pos_world[:, 0] * cos_prev - delta_pos_world[:, 1] * sin_prev
-    delta_y_robot = delta_pos_world[:, 0] * sin_prev + delta_pos_world[:, 1] * cos_prev
-    
-    # Create sampling grid
-    grid_y, grid_x = torch.meshgrid(
-        torch.linspace(-1, 1, H, device=device),
-        torch.linspace(-1, 1, W, device=device),
+    delta_z = curr_pos[:, 2] - prev_pos[:, 2]
+
+    # Translation expressed in the previous robot frame
+    cos_p = torch.cos(prev_yaw)
+    sin_p = torch.sin(prev_yaw)
+    delta_x_prev = delta_pos_world[:, 0] * cos_p + delta_pos_world[:, 1] * sin_p
+    delta_y_prev = -delta_pos_world[:, 0] * sin_p + delta_pos_world[:, 1] * cos_p
+
+    # Metric coords of each output cell center in the CURRENT robot frame.
+    # Outermost cell centers sit at +/- s (align_corners=True samples cell centers).
+    s_x = MAP_RES * (H - 1) / 2.0
+    s_y = MAP_RES * (W - 1) / 2.0
+    x_c, y_c = torch.meshgrid(
+        torch.linspace(s_x, -s_x, H, device=device),
+        torch.linspace(s_y, -s_y, W, device=device),
         indexing='ij'
     )
-    grid = torch.stack([grid_x, grid_y], dim=-1)
-    grid = grid.unsqueeze(0).expand(B, -1, -1, -1)
-    
-    # Convert to meters
-    half_size = MAP_SIZE * MAP_RES / 2.0
-    grid_meters = grid * half_size
-    
-    # Rotate by -delta_yaw
-    cos_delta = torch.cos(-delta_yaw).view(B, 1, 1, 1)
-    sin_delta = torch.sin(-delta_yaw).view(B, 1, 1, 1)
-    
-    grid_x_rot = grid_meters[..., 0] * cos_delta.squeeze(-1) - grid_meters[..., 1] * sin_delta.squeeze(-1)
-    grid_y_rot = grid_meters[..., 0] * sin_delta.squeeze(-1) + grid_meters[..., 1] * cos_delta.squeeze(-1)
-    
-    # Translate by -delta_pos
-    grid_x_trans = grid_x_rot - delta_x_robot.view(B, 1, 1)
-    grid_y_trans = grid_y_rot - delta_y_robot.view(B, 1, 1)
-    
-    # Back to normalized coords
-    grid_transformed = torch.stack([
-        grid_x_trans / half_size,
-        grid_y_trans / half_size
-    ], dim=-1)
+    x_c = x_c.unsqueeze(0)  # (1, H, W)
+    y_c = y_c.unsqueeze(0)
+
+    # Same physical point in the PREVIOUS robot frame: p_p = R(delta_yaw) p_c + delta
+    cos_d = torch.cos(delta_yaw).view(B, 1, 1)
+    sin_d = torch.sin(delta_yaw).view(B, 1, 1)
+    x_p = x_c * cos_d - y_c * sin_d + delta_x_prev.view(B, 1, 1)
+    y_p = x_c * sin_d + y_c * cos_d + delta_y_prev.view(B, 1, 1)
+
+    # Normalized sampling coords into prev map: gx along W (col = -y), gy along H (row = -x)
+    grid_transformed = torch.stack([-y_p / s_y, -x_p / s_x], dim=-1)
     
     # Sample height map with border padding (terrain continues at edges)
     transformed_map = F.grid_sample(
@@ -109,7 +105,10 @@ def transform_height_map_with_mask(
     )
     # Threshold to binary
     transformed_valid = (transformed_valid > 0.5).float()
-    
+
+    # Heights are base-relative: re-reference them to the current base height.
+    transformed_map = transformed_map - delta_z.view(B, 1, 1, 1)
+
     return transformed_map, transformed_valid
 
 

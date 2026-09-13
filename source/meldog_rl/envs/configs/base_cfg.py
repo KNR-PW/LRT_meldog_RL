@@ -136,6 +136,29 @@ class BaseEventCfg:
     )
 
 
+# Domain Randomization - V2 (Run B robustness package)
+@configclass
+class V2EventCfg(BaseEventCfg):
+    """Base randomization plus periodic pushes (V2 locomotion tasks).
+
+    Reset-state randomization is NOT an EventTerm here: ``MeldogEnv._reset_idx``
+    writes the default root/joint state after ``super()._reset_idx()`` (where
+    ``mode="reset"`` events fire), which would silently overwrite them. It is
+    implemented inline in the env instead, gated by ``cfg.reset_randomization``.
+    Interval events fire during ``step()`` and are unaffected.
+    """
+
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},
+        },
+    )
+
+
 # Domain Randomization - Sim2Real (Aggressive)
 @configclass
 class Sim2RealEventCfg(BaseEventCfg):
@@ -381,6 +404,53 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
     
     feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
-    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
-    
+    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None
+
     flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
+
+# -- V2 REWARDS (Spot-ported gait-quality terms) --
+    # All scales default to 0.0 -> the term is neither computed nor logged, so
+    # every v0 task/config/checkpoint behaves bit-identically. V2 configs set them.
+    foot_slip_reward_scale = 0.0            # Spot foot_slip_penalty (planar slip in contact)
+    gait_sync_reward_scale = 0.0           # Spot GaitReward (diagonal-trot sync/async product)
+    gait_sync_std = 0.1                     # GaitReward exp kernel width
+    gait_sync_max_err = 0.2                 # GaitReward per-term clip (seconds)
+    gait_sync_vel_threshold = 0.5           # gate on body speed when command is ~0
+    air_time_variance_reward_scale = 0.0   # Spot air_time_variance_penalty
+    air_time_mode_reward_scale = 0.0       # Spot air_time_reward (per-foot mode-time shaping)
+    air_time_mode_time = 0.3                # target gait phase duration (seconds)
+    air_time_mode_vel_threshold = 0.5       # gate on body speed when command is ~0
+    foot_clearance_reward_scale = 0.0      # Spot foot_clearance_reward (terrain-relative here)
+    foot_clearance_target = 0.08            # target swing-foot height above terrain (m)
+    foot_clearance_std = 0.05               # clearance exp kernel width
+    foot_clearance_tanh_mult = 2.0          # weights clearance error by planar foot speed
+    joint_deviation_hip_reward_scale = 0.0 # L1 deviation of hip-abduction (T) joints
+    contact_schedule_reward_scale = 0.0    # Run C: match feet contacts to the phase clock
+    # Run D posture terms. base_height penalizes (trunk height above terrain -
+    # target)^2; flat_orientation_terrain penalizes tilt relative to the LOCAL
+    # TERRAIN PLANE (fitted from the height scanner) instead of to gravity, so the
+    # robot may lean with a slope. On flat ground the latter is identical to
+    # flat_orientation_l2 -- V2 configs therefore run one or the other, not both.
+    base_height_reward_scale = 0.0         # Run D: L2 penalty on trunk height error
+    base_height_target = 0.34               # measured nominal standing height (m)
+    flat_orientation_terrain_reward_scale = 0.0  # Run D: terrain-relative orientation
+
+# -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
+    # feet_air_time gate: v0 gates on norm(cmd[:2]); True gates on full 3-dim command.
+    air_time_gate_full_cmd = False
+    # Fraction of resampled envs given a pure-rotation command (linear zeroed, wz kept).
+    pure_rotation_fraction = 0.0
+    # Run C: phase-clock gait. When True, a per-env phase in [0, 1) advances by
+    # step_dt * gait_clock_freq per policy step, [sin, cos](2*pi*phase) is appended
+    # to the observations (observation_space must be bumped by 2), the
+    # contact_schedule reward matches diagonal pairs to the clock halves, and
+    # foot_clearance switches to its swing-window form.
+    gait_clock = False
+    gait_clock_freq = 1.7                   # gait cycles per second
+    # Run B: randomize reset state (yaw +/-pi, joint pos +/-0.1 rad, joint vel
+    # +/-0.5, root lin vel +/-0.5 m/s xy). Inline in _reset_idx (see V2EventCfg).
+    reset_randomization = False
+    # Run B: additive uniform observation noise (Go2 rough values) in
+    # _get_observations: lin_vel 0.1, ang_vel 0.2, gravity 0.05, joint_pos 0.01,
+    # joint_vel 1.5, height_scan 0.1.
+    obs_noise = False

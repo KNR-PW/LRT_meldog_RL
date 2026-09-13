@@ -6,6 +6,7 @@
 from .base_cfg import (
     BaseMeldogEnvCfg,
     BaseEventCfg,
+    V2EventCfg,
     Sim2RealEventCfg,
     MELDOG_CFG,
     MELDOG_USD_PATH,
@@ -25,6 +26,12 @@ from .simulation import (
     RoughSimCfg,
     FlatObsSimCfg,
     RoughObsSimCfg,
+    FlatSimV2Cfg,
+    FlatSimV2Cfg_PLAY,
+    RoughSimV2Cfg,
+    RoughSimV2D1Cfg,
+    RoughSimV2D1Cfg_PLAY,
+    RoughSimV2Cfg_PLAY,
 )
 
 # Sim2Real configs
@@ -47,6 +54,7 @@ __all__ = [
     # Base
     "BaseMeldogEnvCfg",
     "BaseEventCfg",
+    "V2EventCfg",
     "Sim2RealEventCfg",
     "MELDOG_CFG",
     "MELDOG_USD_PATH",
@@ -65,6 +73,12 @@ __all__ = [
     "RoughSimCfg",
     "FlatObsSimCfg",
     "RoughObsSimCfg",
+    "FlatSimV2Cfg",
+    "FlatSimV2Cfg_PLAY",
+    "RoughSimV2Cfg",
+    "RoughSimV2D1Cfg",
+    "RoughSimV2D1Cfg_PLAY",
+    "RoughSimV2Cfg_PLAY",
     # Sim2Real
     "FlatRealCfg",
     "RoughRealCfg",
