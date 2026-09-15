@@ -50,9 +50,9 @@ fall rule for every robot, `--profile clean`, Meldog's shared terrains with fixe
 | actuator.torque_sat_pct (%) | 8.1 | 1.3 | 0.00-0.38 |
 | energy.cost_of_transport | 0.86 | 0.70 | 0.48-1.16 |
 
-On the shared rough terrain v2.0-rough falls mainly on stairs (up and down) and on boxes from
-difficulty row 3 onward, where v1.0-rough and all reference policies stay upright. On flat terrain
-both versions survive every episode.
+On the shared rough terrain v2.0-rough falls mainly on pyramid stairs: stairs down survive 38 %,
+12 % and 0 % of episodes at difficulty rows 3, 6 and 9, stairs up 38-62 %, where v1.0-rough and the
+reference policies survive 75-100 % of episodes. On flat terrain both versions survive every episode.
 
 ## Usage
 Run inside your Isaac Lab environment (see `docs/manual.md`):
