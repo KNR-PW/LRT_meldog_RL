@@ -36,6 +36,18 @@ CASES = [
      ["RR_foot", "RL_foot", "FR_foot", "FL_foot"], ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
     ("Isaac-Velocity-Flat-Spot-v0",
      ["fl_foot", "fr_foot", "hl_foot", "hr_foot"], ["fl_foot", "fr_foot", "hl_foot", "hr_foot"]),
+    ("RobotLab-Isaac-Velocity-Rough-Deeprobotics-Lite3-v0",
+     ["HR_Knee_joint", "HL_Knee_joint", "FR_Knee_joint", "FL_Knee_joint"],
+     ["FL_Knee_joint", "FR_Knee_joint", "HL_Knee_joint", "HR_Knee_joint"]),
+    ("RobotLab-Isaac-Velocity-Rough-Zsibot-ZSL1-v0",
+     ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"],
+     ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"]),
+    ("RobotLab-Isaac-Velocity-Rough-Agibot-D1-v0",
+     ["FL_FOOT_LINK", "FR_FOOT_LINK", "RR_FOOT_LINK", "RL_FOOT_LINK"],
+     ["FL_FOOT_LINK", "FR_FOOT_LINK", "RL_FOOT_LINK", "RR_FOOT_LINK"]),
+    ("RobotLab-Isaac-Velocity-Rough-Unitree-B2-v0",
+     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
+     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"]),
 ]
 
 
@@ -62,6 +74,9 @@ def test_task_lookup():
         "Isaac-Velocity-Flat-Anymal-D-v0": "anymal_d",
         "Isaac-Velocity-Rough-Unitree-Go1-v0": "go1",
         "Isaac-Velocity-Flat-Spot-v0": "spot",
+        "RobotLab-Isaac-Velocity-Rough-Unitree-Go2-v0": "go2",
+        "RobotLab-Isaac-Velocity-Rough-MagicLab-Dog-Hip0125-v0": "magicdog",
+        "RobotLab-Isaac-Velocity-Flat-Unitree-B2-v0": "b2",
     }
     for task, name in expected.items():
         assert robot_specs.find_robot_spec(task).name == name, task

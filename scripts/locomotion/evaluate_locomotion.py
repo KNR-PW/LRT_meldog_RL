@@ -118,6 +118,11 @@ from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401  (registers the Isaac Lab reference tasks)
 
+try:
+    import robot_lab.tasks  # noqa: F401  (registers robot_lab reference tasks when installed)
+except ImportError:
+    pass
+
 import meldog_rl
 from meldog_rl import envs  # This registers the tasks
 from meldog_rl import agents

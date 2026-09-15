@@ -48,15 +48,17 @@ class RobotSpec:
 def leg_label(name: str, name_order: str) -> str | None:
     """Canonical leg label (FL, FR, RL, RR) from a body or joint name, or None.
 
-    Only the first two letters are read. Hind (``H``) counts as rear.
+    ``side_end`` reads the first two letters (``LFK_joint`` -> L, F). ``end_side`` reads the first
+    and the last letter of the first ``_``-separated token, so both ``FL_foot`` and Zsibot's
+    ``FBL_KNEE_JOINT`` give F, L. Hind (``H``) counts as rear.
     """
-    head = re.sub(r"[^A-Za-z]", "", name)[:2].upper()
-    if len(head) < 2:
+    token = re.sub(r"[^A-Za-z]", "", name.split("_")[0]).upper()
+    if len(token) < 2:
         return None
     if name_order == "side_end":
-        side, end = head[0], head[1]
+        side, end = token[0], token[1]
     elif name_order == "end_side":
-        end, side = head[0], head[1]
+        end, side = token[0], token[-1]
     else:
         raise ValueError(f"unknown name_order: {name_order}")
     if side not in ("L", "R") or end not in ("F", "R", "H"):
@@ -84,6 +86,12 @@ ROBOT_SPECS: tuple[RobotSpec, ...] = (
     RobotSpec("go2", r"Unitree-Go2", "base", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
     RobotSpec("a1", r"Unitree-A1", "(trunk|base)", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
     RobotSpec("spot", r"-Spot-", "body", r".*_foot", r".*_kn", r".*_uleg", r".*_lleg", "end_side"),
+    # robot_lab quadrupeds (URDF link names)
+    RobotSpec("b2", r"Unitree-B2", "base_link", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
+    RobotSpec("lite3", r"Deeprobotics-Lite3", "TORSO", r".*_FOOT", r".*_Knee_joint", r".*_THIGH", r".*_SHANK", "end_side"),
+    RobotSpec("d1", r"Agibot-D1", "BASE_LINK", r".*_FOOT_LINK", r".*_KNEE_JOINT", r".*_HIP_LINK", r".*_KNEE_LINK", "end_side"),
+    RobotSpec("zsl1", r"Zsibot-ZSL1", "BASE_LINK", r".*_FOOT_LINK", r".*_KNEE_JOINT", r".*_HIP_LINK", r".*_KNEE_LINK", "end_side"),
+    RobotSpec("magicdog", r"MagicLab-Dog", "base", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
 )
 
 
@@ -91,6 +99,7 @@ ROBOT_SPECS: tuple[RobotSpec, ...] = (
 NOMINAL_MASS_KG = {
     "meldog": 21.5, "anymal_b": 30.4, "anymal_c": 52.1, "anymal_d": 57.0,
     "go1": 13.1, "go2": 15.5, "a1": 13.7, "spot": 32.5,
+    "b2": 74.6, "lite3": 11.9, "d1": 15.2, "zsl1": 15.2, "magicdog": 15.9,
 }
 
 

@@ -341,6 +341,11 @@ class ManagerEnvAdapter(EnvAdapter):
             cmd.heading_command = False
             cmd.rel_heading_envs = 0.0
             cmd.rel_standing_envs = 0.0
+            # Extensions subclass the command term (robot_lab zeroes small commands and rewrites
+            # commands on "pits" terrain); use Isaac Lab's plain term so nothing edits the script.
+            from isaaclab.envs.mdp import UniformVelocityCommand
+
+            cmd.class_type = UniformVelocityCommand
 
     def terrain_cfg_holder(self, env_cfg):
         return env_cfg.scene, "terrain"
