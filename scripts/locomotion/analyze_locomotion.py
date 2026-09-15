@@ -157,7 +157,11 @@ def compute_flags(meta, loco):
     (smooth.*) and un-banded metrics are omitted.
     """
     task = (meta.get("task") or "").lower()
-    is_flat = "flat" in task and "rough" not in task
+    bench_terrain = meta.get("bench_terrain") or "task"
+    if bench_terrain != "task":
+        is_flat = bench_terrain == "flat"
+    else:
+        is_flat = "flat" in task and "rough" not in task
     flags = {}
 
     def put(key, val):
@@ -171,11 +175,20 @@ def compute_flags(meta, loco):
     put("tracking.lin_err", _flag_lt(tr["lin_err"], 0.15, 0.30))
     put("tracking.ang_err", _flag_lt(tr["ang_err"], 0.20, 0.40))
 
+    # Attitude bands assume level ground. On non-flat terrain the raw attitude is a trend
+    # metric and the tilt relative to the local terrain plane gets the bands instead (E5).
     at = loco["attitude"]
-    put("attitude.roll_mean", _flag_abs_lt(at["roll_mean"], 0.03, 0.07))
-    put("attitude.pitch_mean", _flag_abs_lt(at["pitch_mean"], 0.03, 0.07))
-    put("attitude.roll_std", _flag_lt(at["roll_std"], 0.05, 0.10))
-    put("attitude.pitch_std", _flag_lt(at["pitch_std"], 0.05, 0.10))
+    po = loco.get("posture", {})
+    if is_flat or po.get("pitch_terrain_rel_mean") is None:
+        put("attitude.roll_mean", _flag_abs_lt(at["roll_mean"], 0.03, 0.07))
+        put("attitude.pitch_mean", _flag_abs_lt(at["pitch_mean"], 0.03, 0.07))
+        put("attitude.roll_std", _flag_lt(at["roll_std"], 0.05, 0.10))
+        put("attitude.pitch_std", _flag_lt(at["pitch_std"], 0.05, 0.10))
+    else:
+        put("posture.roll_terrain_rel_mean", _flag_abs_lt(po["roll_terrain_rel_mean"], 0.03, 0.07))
+        put("posture.pitch_terrain_rel_mean", _flag_abs_lt(po["pitch_terrain_rel_mean"], 0.03, 0.07))
+        put("posture.roll_terrain_rel_std", _flag_lt(po["roll_terrain_rel_std"], 0.05, 0.10))
+        put("posture.pitch_terrain_rel_std", _flag_lt(po["pitch_terrain_rel_std"], 0.05, 0.10))
 
     ga = loco["gait"]
     put("gait.duty_factor", _flag_duty_factor(ga["duty_factor"]))
@@ -186,7 +199,8 @@ def compute_flags(meta, loco):
     put("slip.mean_vel", _flag_lt(loco["slip"]["mean_vel"], 0.05, 0.20))
 
     im = loco["impact"]
-    put("impact.peak_force_bw", _flag_lt(im["peak_force_bw"], 2.0, 3.0))
+    # Flag the 95th percentile of touchdown peaks: a mean hides occasional smashes (E3).
+    put("impact.peak_force_bw_p95", _flag_lt(im.get("peak_force_bw_p95"), 2.0, 3.0))
     put("impact.touchdown_vel", _flag_lt(im["touchdown_vel"], 0.3, 0.5))
 
     ac = loco["actuator"]
@@ -480,6 +494,8 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
                 peak_bw.append(float(np.max(fmag_peak[rs:re, fi]) / (mass * GRAVITY)))
                 td_vel.append(float(abs(fvel[rs, fi, 2])))
     m["peak_force_bw"] = float(np.mean(peak_bw)) if peak_bw else None
+    m["peak_force_bw_p95"] = float(np.percentile(peak_bw, 95)) if peak_bw else None
+    m["peak_force_bw_max"] = float(np.max(peak_bw)) if peak_bw else None
     m["touchdown_vel"] = float(np.mean(td_vel)) if td_vel else None
 
     # --- swing-phase kinematics (trend metrics, per foot FL,FR,RL,RR) ---
@@ -556,6 +572,23 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
 # ---------------------------------------------------------------------------
 # Metric aggregation into the metrics.json schema
 # ---------------------------------------------------------------------------
+def survival_by_terrain(data):
+    """{kind: {difficulty row: survival rate}} for benchmark runs with fixed terrain cells."""
+    if "terrain_cell" not in data or "first_episode_survived" not in data:
+        return None
+    kinds = _decode_str_list(data["_attrs"].get("terrain_cell_kinds"))
+    if not kinds:
+        return None
+    rows = np.asarray(data["terrain_cell"])[:, 0]
+    survived = np.asarray(data["first_episode_survived"]).astype(float)
+    out = {}
+    for kind in dict.fromkeys(kinds):
+        mask_kind = np.array([k == kind for k in kinds])
+        out[kind] = {int(r): float(survived[mask_kind & (rows == r)].mean())
+                     for r in sorted(set(rows[mask_kind].tolist()))}
+    return out
+
+
 def build_metrics(data, segments):
     dt = float(data["_attrs"]["step_dt"])
     # Per-joint limits when recorded (inf = no fixed limit, never counted as saturated).
@@ -566,7 +599,12 @@ def build_metrics(data, segments):
 
     k_idx = resolve_k_idx(data["_attrs"], data)
 
-    n_term, n_surv = survival_stats(data["dones"], data["time_outs"])
+    if "first_episode_survived" in data:
+        # Full-episode benchmark: one episode per env, survival from the evaluator's fall rule.
+        survived = np.asarray(data["first_episode_survived"]).astype(bool)
+        n_term, n_surv = int(survived.size), int(survived.sum())
+    else:
+        n_term, n_surv = survival_stats(data["dones"], data["time_outs"])
     per_ep = [episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx) for seg in segments]
 
     def col(key):
@@ -576,6 +614,7 @@ def build_metrics(data, segments):
 
     loco = {
         "survival_rate": (n_surv / n_term) if n_term > 0 else None,
+        "survival_by_terrain": survival_by_terrain(data),
         "n_terminated": n_term,
         "n_survived": n_surv,
         "num_usable_episodes": len(per_ep),
@@ -608,6 +647,8 @@ def build_metrics(data, segments):
         },
         "impact": {
             "peak_force_bw": aggregate(col("peak_force_bw")),
+            "peak_force_bw_p95": aggregate(col("peak_force_bw_p95")),
+            "peak_force_bw_max": aggregate(col("peak_force_bw_max")),
             "touchdown_vel": aggregate(col("touchdown_vel")),
         },
         "swing": {
@@ -660,6 +701,9 @@ def build_metrics(data, segments):
         "robot_mass": a("robot_mass"),
         "robot_name": a("robot_name", "meldog"),
         "robot_leg_length": a("leg_length"),
+        "profile": a("profile", "task"),
+        "bench_terrain": a("bench_terrain", "task"),
+        "full_episodes": a("full_episodes", False),
         "impact_force_source": "substep_max" if "feet_forces_max" in data else "snapshot",
     }
     flags = compute_flags(meta, loco)
@@ -917,6 +961,13 @@ def write_report(metrics, out_path):
         f"- survival_rate: {sr*100:.1f}%  ({L['n_survived']}/{L['n_terminated']} "
         f"episodes) {fl('survival_rate')}\n"
         if sr is not None else "- survival_rate: n/a\n")
+    if L.get("survival_by_terrain"):
+        rows = sorted({r for d in L["survival_by_terrain"].values() for r in d})
+        lines.append("\n| terrain kind | " + " | ".join(f"row {r}" for r in rows) + " |")
+        lines.append("|---|" + "---|" * len(rows))
+        for kind, d in L["survival_by_terrain"].items():
+            lines.append(f"| {kind} | " + " | ".join(f"{d[r]:.2f}" if r in d else "–" for r in rows) + " |")
+        lines.append("")
 
     lines.append("## Metrics (mean +/- std across episodes)\n")
     lines.append("Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
@@ -941,7 +992,10 @@ def write_report(metrics, out_path):
     lines.append(f"| slip.mean_vel (transition-filtered) | {fmt(L['slip']['mean_vel'], unit=' m/s')} | {fl('slip.mean_vel')} |")
     lines.append(f"| slip.mean_vel_raw (unfiltered) | {fmt(L['slip']['mean_vel_raw'], unit=' m/s')} | trend |")
     lines.append(f"| slip.dist_per_step | {fmt(L['slip']['dist_per_step'], unit=' m')} |  |")
-    lines.append(f"| impact.peak_force_bw ({meta.get('impact_force_source', 'snapshot')}) | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | {fl('impact.peak_force_bw')} |")
+    lines.append(f"| impact.peak_force_bw mean ({meta.get('impact_force_source', 'snapshot')}) | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | trend |")
+    if L['impact'].get('peak_force_bw_p95') is not None:
+        lines.append(f"| impact.peak_force_bw_p95 | {fmt(L['impact']['peak_force_bw_p95'], unit=' BW')} | {fl('impact.peak_force_bw_p95')} |")
+        lines.append(f"| impact.peak_force_bw_max | {fmt(L['impact']['peak_force_bw_max'], unit=' BW')} | trend |")
     lines.append(f"| impact.touchdown_vel | {fmt(L['impact']['touchdown_vel'], unit=' m/s')} | {fl('impact.touchdown_vel')} |")
     lines.append(f"| swing.apex_height [FL,FR,RL,RR] | {fmt_array(L['swing']['apex_height'], unit=' m')} | trend |")
     lines.append(f"| swing.knee_excursion [FL,FR,RL,RR] | {fmt_array(L['swing']['knee_excursion'], unit=' rad')} | trend |")
@@ -949,10 +1003,10 @@ def write_report(metrics, out_path):
     if P.get("base_height") is not None or P.get("pitch_terrain_rel_mean") is not None:
         lines.append(f"| posture.base_height (trunk above terrain) | {fmt(P['base_height'], unit=' m')} | trend |")
         lines.append(f"| posture.base_height_std (within episode) | {fmt(P['base_height_std'], unit=' m')} | trend |")
-        lines.append(f"| posture.pitch_terrain_rel_mean | {fmt(P['pitch_terrain_rel_mean'], unit=' rad')} | trend |")
-        lines.append(f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | trend |")
-        lines.append(f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | trend |")
-        lines.append(f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | trend |")
+        lines.append(f"| posture.pitch_terrain_rel_mean | {fmt(P['pitch_terrain_rel_mean'], unit=' rad')} | {fl('posture.pitch_terrain_rel_mean') or 'trend'} |")
+        lines.append(f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | {fl('posture.pitch_terrain_rel_std') or 'trend'} |")
+        lines.append(f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | {fl('posture.roll_terrain_rel_mean') or 'trend'} |")
+        lines.append(f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | {fl('posture.roll_terrain_rel_std') or 'trend'} |")
     lines.append(f"| smooth.action_rate | {fmt(L['smooth']['action_rate'])} |  |")
     lines.append(f"| smooth.joint_acc | {fmt(L['smooth']['joint_acc'], unit=' rad/s^2')} |  |")
     lines.append(f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |")
@@ -1006,6 +1060,12 @@ def main():
     print(f"[INFO] {T} steps x {E} envs, dt={dt:g}s")
 
     segments = extract_segments(data["dones"])
+    if "first_episode_length" in data:
+        # Full-episode benchmark: analyze each env's first episode only.
+        first_len = np.asarray(data["first_episode_length"]).astype(int)
+        segments = [dict(seg, end=min(seg["end"], int(first_len[seg["env"]])))
+                    for seg in segments if seg["start"] == 0]
+        segments = [seg for seg in segments if seg["end"] - seg["start"] >= MIN_SEGMENT_LEN]
     print(f"[INFO] {len(segments)} usable segments (>= {MIN_SEGMENT_LEN} steps)")
     if not segments:
         raise RuntimeError("No usable segments found -- rollout too short.")

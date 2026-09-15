@@ -61,6 +61,26 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--profile", type=str, default="clean", choices=["clean", "real"],
+    help=(
+        "Benchmark conditions, applied the same way to every robot (only with --benchmark). "
+        "clean: no observation noise, pushes or mass randomization, nominal friction, default "
+        "reset pose, curriculum off. real: clean plus observation noise, friction 0.4-1.2, "
+        "trunk mass +-10 %% and pushes."
+    ),
+)
+parser.add_argument(
+    "--bench_terrain", type=str, default="task", choices=["task", "flat", "rough", "obs", "rough_obs"],
+    help=(
+        "Terrain for --benchmark: 'task' keeps the task's own terrain; the others are Meldog's "
+        "shared terrains with a fixed terrain cell per env (difficulty rows 0, 3, 6, 9)."
+    ),
+)
+parser.add_argument(
+    "--output_root", type=str, default=None,
+    help="Parent folder for the evaluation folder (default: logs/locomotion).",
+)
+parser.add_argument(
     "--full_episodes", action="store_true",
     help=(
         "Count only each env's first episode and start it at step 0 (direct envs such as "
@@ -75,6 +95,7 @@ args_cli = parser.parse_args()
 # Benchmark mode pins the seed so terrain generation and resets are reproducible.
 if args_cli.benchmark:
     args_cli.seed = 42
+    args_cli.full_episodes = True  # benchmark episodes are always full length (finding E1)
 if args_cli.full_episodes:
     args_cli.num_episodes = args_cli.num_envs
 
@@ -102,6 +123,7 @@ from meldog_rl import envs  # This registers the tasks
 from meldog_rl import agents
 from meldog_rl.eval.adapters import load_cfgs, make_adapter, task_tag
 from meldog_rl.eval.benchmark import BENCHMARK_CYCLE_S, BENCHMARK_SCHEDULE, benchmark_commands
+from meldog_rl.eval.benchmark_terrains import bench_cells
 from meldog_rl.utils import make_evaluation_dir
 from meldog_rl.utils.git_utils import get_git_suffix
 
@@ -130,6 +152,11 @@ def main():
                           enable_cameras=bool(args_cli.enable_cameras), benchmark=args_cli.benchmark)
     if not args_cli.enable_cameras:
         print("[INFO] Cameras disabled for faster evaluation.")
+    if args_cli.benchmark:
+        for line in adapter.apply_benchmark(env_cfg, args_cli.profile, args_cli.bench_terrain):
+            print(f"[BENCH] {line}")
+    FALL_TILT_RAD = 1.0       # trunk tilt that counts as a fall
+    FALL_BASE_FORCE_N = 1.0   # trunk contact force that counts as a fall
 
     print(f"[INFO] Evaluating: {args_cli.checkpoint}")
     print(f"[INFO] Running {args_cli.num_envs} envs for {args_cli.num_episodes} total episodes.")
@@ -139,6 +166,13 @@ def main():
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     raw_env = env.unwrapped
     adapter.bind(raw_env)
+    cells = None
+    if args_cli.benchmark and args_cli.bench_terrain not in ("task", "flat"):
+        holder, attr = adapter.terrain_cfg_holder(env_cfg)
+        cells = bench_cells(getattr(holder, attr).terrain_generator, args_cli.num_envs)
+        adapter.assign_terrain_cells(cells)
+        env.reset()
+        print(f"[BENCH] fixed terrain cells: {sorted(set((c[2], c[0]) for c in cells))}")
 
     # Load policy
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
@@ -156,7 +190,9 @@ def main():
     terrain = None
     if args_cli.record:
         tag = task_tag(args_cli.task)
-        save_dir = make_evaluation_dir("locomotion", tag)
+        if args_cli.benchmark:
+            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}"
+        save_dir = make_evaluation_dir("locomotion", tag, base_dir=args_cli.output_root)
         save_dir.mkdir(parents=True, exist_ok=True)
         print(f"[INFO] Recording rollout to: {save_dir / 'rollout.h5'}")
 
@@ -197,6 +233,12 @@ def main():
     obs = env.get_observations()
     current_lengths = torch.zeros(args_cli.num_envs, device=device)
     counted = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_fell = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_survived = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_length = torch.zeros(args_cli.num_envs, dtype=torch.long, device=device)
+    base_ids = adapter.base_sensor_ids()
+    if not base_ids:
+        print(f"[WARN] base body '{adapter.spec.base_body}' not in contact sensor; fall rule uses tilt only.")
     if args_cli.full_episodes:
         # Undo the reset-time episode-length randomization so every first episode is full length.
         raw_env.episode_length_buf[:] = 0
@@ -227,6 +269,14 @@ def main():
                 bench_clock[dones.bool()] = 0.0  # restart clock for reset envs
 
             time_outs = infos.get("time_outs", torch.zeros_like(dones))
+
+            # Evaluator-side fall rule, identical for every robot (tasks terminate differently).
+            tilt = torch.acos(torch.clamp(-robot.data.projected_gravity_b[:, 2], -1.0, 1.0))
+            fallen_now = tilt > FALL_TILT_RAD
+            if base_ids:
+                base_force = torch.norm(contact.data.net_forces_w_history[:, :, base_ids], dim=-1)
+                fallen_now |= base_force.amax(dim=(1, 2)) > FALL_BASE_FORCE_N
+            first_fell |= fallen_now & ~counted & ~dones.bool()
 
             # --- record post-step state (done steps are marked; the analyzer
             #     drops those single post-reset samples per episode) ---
@@ -282,7 +332,9 @@ def main():
                     if args_cli.full_episodes and counted[idx]:
                         continue
                     counted[idx] = True
-                    is_timeout = time_outs[idx].item()
+                    first_length[idx] = int(current_lengths[idx].item())
+                    first_survived[idx] = bool(time_outs[idx].item()) and not bool(first_fell[idx].item())
+                    is_timeout = first_survived[idx].item() if args_cli.benchmark else time_outs[idx].item()
                     if is_timeout:
                         success_count += 1
                     else:
@@ -330,13 +382,14 @@ def main():
     # Write rollout.h5
     # ------------------------------------------------------------------
     if args_cli.record:
-        _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical)
+        first = dict(fell=first_fell, survived=first_survived, length=first_length, cells=cells)
+        _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
 
     sys.stdout.flush()
     env.close()
 
 
-def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical):
+def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first):
     """Stack recorded buffers (feet already in FL/FR/RL/RR order) and write rollout.h5."""
     rollout_path = save_dir / "rollout.h5"
     print(f"\n[INFO] Writing rollout to {rollout_path} ...")
@@ -459,6 +512,16 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical):
         a["num_episodes"] = int(args_cli.num_episodes)
         a["benchmark_mode"] = bool(args_cli.benchmark)
         a["full_episodes"] = bool(args_cli.full_episodes)
+        a["profile"] = args_cli.profile if args_cli.benchmark else "task"
+        a["bench_terrain"] = args_cli.bench_terrain if args_cli.benchmark else "task"
+        a["contact_history_length"] = int(adapter.contact_sensor.cfg.history_length)
+        if args_cli.full_episodes:
+            f.create_dataset("first_episode_fell", data=first["fell"].cpu().numpy().astype(np.uint8))
+            f.create_dataset("first_episode_survived", data=first["survived"].cpu().numpy().astype(np.uint8))
+            f.create_dataset("first_episode_length", data=first["length"].cpu().numpy().astype(np.int32))
+        if first["cells"] is not None:
+            f.create_dataset("terrain_cell", data=np.asarray([c[:2] for c in first["cells"]], dtype=np.int16))
+            a["terrain_cell_kinds"] = [c[2] for c in first["cells"]]
         a["git_commit"] = get_git_suffix()
         a["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

@@ -114,6 +114,40 @@ class EnvAdapter:
         env_cfg.seed = seed
         env_cfg.sim.device = device
 
+    def apply_benchmark(self, env_cfg, profile: str, bench_terrain: str) -> list[str]:
+        """Benchmark conditions (see ``profiles.py``) and optional shared terrain. Returns a log."""
+        from . import profiles
+        from .benchmark_terrains import make_terrain_cfg
+        from .robot_specs import NOMINAL_MASS_KG
+
+        log = profiles.apply_clean_events(env_cfg)
+        log += self._disable_noise_and_curriculum(env_cfg)
+        sensor_cfg = self.contact_sensor_cfg(env_cfg)
+        sensor_cfg.history_length = int(env_cfg.decimation)
+        log.append(f"contact sensor history = decimation = {env_cfg.decimation}")
+        if bench_terrain != "task":
+            holder, attr = self.terrain_cfg_holder(env_cfg)
+            setattr(holder, attr, make_terrain_cfg(bench_terrain))
+            log.append(f"terrain replaced by shared benchmark terrain '{bench_terrain}'")
+        if profile == "real":
+            log += profiles.apply_real_events(env_cfg, self, NOMINAL_MASS_KG.get(self.spec.name))
+            log += self._enable_real_obs_noise(env_cfg)
+        return log
+
+    def assign_terrain_cells(self, cells) -> None:
+        """Put env i on terrain cell (row, column) ``cells[i]``; takes effect at the next reset."""
+        terrain = self.terrain
+        levels = torch.tensor([c[0] for c in cells], device=terrain.terrain_origins.device)
+        types = torch.tensor([c[1] for c in cells], device=terrain.terrain_origins.device)
+        terrain.terrain_levels[:] = levels
+        terrain.terrain_types[:] = types
+        terrain.env_origins[:] = terrain.terrain_origins[levels, types]
+
+    def base_sensor_ids(self):
+        """Contact-sensor ids of the trunk body (empty if the spec's name does not match)."""
+        ids, _ = self.contact_sensor.find_bodies(self.spec.base_body)
+        return ids
+
     # -- after env creation --------------------------------------------------
     def bind(self, raw_env) -> None:
         self.env = raw_env
@@ -230,6 +264,30 @@ class DirectEnvAdapter(EnvAdapter):
                 if hasattr(env_cfg, name):
                     setattr(env_cfg, name, None)
 
+    def terrain_cfg_holder(self, env_cfg):
+        return env_cfg, "terrain"
+
+    def contact_sensor_cfg(self, env_cfg):
+        return env_cfg.contact_sensor
+
+    def _disable_noise_and_curriculum(self, env_cfg):
+        log = []
+        for flag in ("obs_noise", "reset_randomization", "enable_curriculum"):
+            if getattr(env_cfg, flag, False):
+                setattr(env_cfg, flag, False)
+                log.append(f"cfg.{flag} = False")
+        for model in ("observation_noise_model", "action_noise_model"):
+            if getattr(env_cfg, model, None) is not None:
+                setattr(env_cfg, model, None)
+                log.append(f"cfg.{model} = None")
+        return log
+
+    def _enable_real_obs_noise(self, env_cfg):
+        if hasattr(env_cfg, "obs_noise"):
+            env_cfg.obs_noise = True   # Meldog's inline noise uses the same magnitudes
+            return ["cfg.obs_noise = True (Isaac Lab default magnitudes)"]
+        return ["[WARN] this direct env has no observation-noise option; real profile without obs noise"]
+
     @property
     def robot(self):
         return self.env._robot
@@ -283,6 +341,31 @@ class ManagerEnvAdapter(EnvAdapter):
             cmd.heading_command = False
             cmd.rel_heading_envs = 0.0
             cmd.rel_standing_envs = 0.0
+
+    def terrain_cfg_holder(self, env_cfg):
+        return env_cfg.scene, "terrain"
+
+    def contact_sensor_cfg(self, env_cfg):
+        return env_cfg.scene.contact_forces
+
+    def _disable_noise_and_curriculum(self, env_cfg):
+        from isaaclab.managers import CurriculumTermCfg
+
+        log = []
+        env_cfg.observations.policy.enable_corruption = False
+        log.append("observation noise off")
+        curriculum = getattr(env_cfg, "curriculum", None)
+        if curriculum is not None:
+            for name, term in vars(curriculum).items():
+                if isinstance(term, CurriculumTermCfg):
+                    setattr(curriculum, name, None)
+                    log.append(f"curriculum term '{name}' removed")
+        return log
+
+    def _enable_real_obs_noise(self, env_cfg):
+        from . import profiles
+
+        return profiles.apply_real_obs_noise(env_cfg)
 
     @property
     def robot(self):

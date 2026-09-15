@@ -80,11 +80,18 @@ ROBOT_SPECS: tuple[RobotSpec, ...] = (
     RobotSpec("anymal_b", r"Anymal-B", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
     RobotSpec("anymal_c", r"Anymal-C", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
     RobotSpec("anymal_d", r"Anymal-D", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
-    RobotSpec("go1", r"Unitree-Go1", "trunk", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
+    RobotSpec("go1", r"Unitree-Go1", "(trunk|base)", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
     RobotSpec("go2", r"Unitree-Go2", "base", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
-    RobotSpec("a1", r"Unitree-A1", "trunk", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
+    RobotSpec("a1", r"Unitree-A1", "(trunk|base)", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
     RobotSpec("spot", r"-Spot-", "body", r".*_foot", r".*_kn", r".*_uleg", r".*_lleg", "end_side"),
 )
+
+
+# Approximate nominal masses (model files), used only to size the ``real`` profile's mass change.
+NOMINAL_MASS_KG = {
+    "meldog": 21.5, "anymal_b": 30.4, "anymal_c": 52.1, "anymal_d": 57.0,
+    "go1": 13.1, "go2": 15.5, "a1": 13.7, "spot": 32.5,
+}
 
 
 def find_robot_spec(task: str) -> RobotSpec:
