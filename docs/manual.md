@@ -139,6 +139,30 @@ python scripts/locomotion/evaluate_locomotion.py \
     --benchmark --num_envs 16 --num_episodes 16 --headless
 ```
 
+- `--full_episodes`: count only each env's first episode and start it at step 0. Meldog's
+  env randomizes episode length on reset, so without this flag most benchmark episodes are
+  shorter than 20 s. With it, every env runs a full-length episode unless it falls, and
+  `--num_episodes` is set to `--num_envs`. Survival rates with and without this flag are not
+  comparable.
+
+### E. Reference robots (Isaac Lab quadrupeds)
+The same evaluator runs the Isaac Lab velocity tasks, so their policies are measured exactly
+like Meldog's. Supported robots: ANYmal-B/C/D, Unitree Go1/Go2/A1 and Spot
+(`Isaac-Velocity-{Flat,Rough}-<Robot>-v0`, plus the direct `Isaac-Velocity-*-Anymal-C-Direct-v0`).
+```bash
+python scripts/locomotion/evaluate_locomotion.py \
+    --task Isaac-Velocity-Rough-Unitree-Go2-v0 \
+    --checkpoint <IsaacLab>/logs/rsl_rl/unitree_go2_rough/<run>/model_1499.pt \
+    --benchmark --full_episodes --num_envs 16 --headless
+```
+- Output folders are named `LE_ref_<robot>_<flat|rough>_*`.
+- Foot, knee, hip and shank bodies of each robot are defined in
+  `source/meldog_rl/eval/robot_specs.py`; add an entry there to support another robot.
+- Every recording stores the robot's size and limits so results can be interpreted per robot:
+  mass, per-leg thigh and shank lengths (`leg_length`), per-joint effort and velocity limits,
+  default joint pose and knee joint indices.
+- Tasks without a height scanner (all flat tasks) record no posture channel.
+
 ---
 
 ## 4. Perception Usage
@@ -264,7 +288,15 @@ python scripts/perception/analyze_perception.py MODEL.h5 [SLAM.h5] \
     --labels model slam            # [-o DIR] [--env N] [--timesteps 50 200 500 950]
 ```
 
-### C. What an evaluation run produces
+### C. Comparing runs (`compare_metrics.py`)
+Prints one Markdown table of the key metrics and flags for any number of evaluations, sorted
+by robot mass, with robot name and leg length.
+```bash
+python scripts/locomotion/compare_metrics.py logs/locomotion/LE_a logs/locomotion/LE_b \
+    [--output comparison.md] [--csv comparison.csv]
+```
+
+### D. What an evaluation run produces
 
 | File | Purpose |
 | :--- | :--- |

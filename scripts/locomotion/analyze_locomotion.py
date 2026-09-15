@@ -263,10 +263,23 @@ def k_joint_indices_by_foot(joint_names):
         return None
 
 
-def resolve_k_idx(attrs):
-    """K-joint indices in FL,FR,RL,RR order, from h5 joint_names attr (or fallback)."""
+def resolve_k_idx(attrs, data=None):
+    """Knee joint indices in FL,FR,RL,RR order.
+
+    Newer recordings store them (``knee_joint_idx``, any robot); older Meldog recordings
+    fall back to the Meldog joint-name rule, then to the documented DOF-grouped order.
+    """
+    if data is not None and "knee_joint_idx" in data:
+        return [int(i) for i in data["knee_joint_idx"]]
     idx = k_joint_indices_by_foot(_decode_str_list(attrs.get("joint_names")))
     return idx if idx is not None else list(K_JOINT_IDX_FALLBACK)
+
+
+def resolve_knee_defaults(data, k_idx):
+    """Default knee angle per foot (FL,FR,RL,RR); Meldog's 1.3 rad for older recordings."""
+    if "default_joint_pos" in data:
+        return np.asarray(data["default_joint_pos"], dtype=float)[k_idx]
+    return np.full(4, DEFAULT_KNEE_ANGLE)
 
 
 def detect_period_steps(sig: np.ndarray, dt: float):
@@ -475,6 +488,7 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     # detector. Both averaged over the episode's genuine swings (must start from a
     # real liftoff, i.e. preceded by contact -> swing run start > 0).
     foot_z = fpos[:, :, 2]  # (L,4) world z
+    knee_default = resolve_knee_defaults(data, k_idx)
     swing_apex = np.full(4, np.nan)
     swing_knee = np.full(4, np.nan)
     for fi in range(4):
@@ -484,7 +498,7 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
                 continue
             apex_vals.append(float(np.max(foot_z[rs:re, fi]) - foot_z[rs, fi]))
             kj = jpos[rs:re, k_idx[fi]]
-            knee_vals.append(float(np.max(np.abs(kj - DEFAULT_KNEE_ANGLE))))
+            knee_vals.append(float(np.max(np.abs(kj - knee_default[fi]))))
         if apex_vals:
             swing_apex[fi] = float(np.mean(apex_vals))
         if knee_vals:
@@ -544,10 +558,13 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
 # ---------------------------------------------------------------------------
 def build_metrics(data, segments):
     dt = float(data["_attrs"]["step_dt"])
-    effort_limit = float(data["_attrs"]["joint_effort_limit"])
-    vel_limit = float(data["_attrs"]["joint_velocity_limit"])
+    # Per-joint limits when recorded (inf = no fixed limit, never counted as saturated).
+    effort_limit = (np.asarray(data["joint_effort_limits"], dtype=float) if "joint_effort_limits" in data
+                    else float(data["_attrs"]["joint_effort_limit"]))
+    vel_limit = (np.asarray(data["joint_velocity_limits"], dtype=float) if "joint_velocity_limits" in data
+                 else float(data["_attrs"]["joint_velocity_limit"]))
 
-    k_idx = resolve_k_idx(data["_attrs"])
+    k_idx = resolve_k_idx(data["_attrs"], data)
 
     n_term, n_surv = survival_stats(data["dones"], data["time_outs"])
     per_ep = [episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx) for seg in segments]
@@ -641,6 +658,8 @@ def build_metrics(data, segments):
         "num_envs": int(a("num_envs", data["dones"].shape[1])),
         "num_steps": int(a("num_steps", data["dones"].shape[0])),
         "robot_mass": a("robot_mass"),
+        "robot_name": a("robot_name", "meldog"),
+        "robot_leg_length": a("leg_length"),
         "impact_force_source": "substep_max" if "feet_forces_max" in data else "snapshot",
     }
     flags = compute_flags(meta, loco)
@@ -888,7 +907,9 @@ def write_report(metrics, out_path):
                  f"**seed**: {meta['seed']}  ·  **benchmark_mode**: {meta['benchmark_mode']}")
     lines.append(f"- **envs x steps**: {meta['num_envs']} x {meta['num_steps']}  ·  "
                  f"**usable episodes**: {L['num_usable_episodes']}  ·  "
-                 f"**robot mass**: {meta['robot_mass']:.2f} kg\n")
+                 f"**robot mass**: {meta['robot_mass']:.2f} kg"
+                 + (f"  ·  **robot**: {meta['robot_name']}, leg length {meta['robot_leg_length']:.3f} m"
+                    if meta.get("robot_leg_length") else "") + "\n")
 
     sr = L["survival_rate"]
     lines.append("## Survival")
@@ -1001,12 +1022,12 @@ def main():
     plot_tracking(data, seg, dt, plots_dir / "tracking.png")
     plot_attitude(data, seg, dt, plots_dir / "attitude.png")
     plot_actions(data, seg, dt, plots_dir / "actions.png")
-    plot_swing(data, seg, dt, plots_dir / "swing.png", resolve_k_idx(data["_attrs"]))
+    plot_swing(data, seg, dt, plots_dir / "swing.png", resolve_k_idx(data["_attrs"], data))
     if has_posture(data):
         plot_posture(data, seg, dt, plots_dir / "posture.png")
     else:
         print("[INFO] No terrain-relative posture datasets in this rollout "
-              "(pre-Run-D recorder); skipping posture metrics and plot.")
+              "(no height scanner, or a pre-Run-D recording); skipping posture metrics and plot.")
     print(f"[INFO] Wrote plots to {plots_dir}")
 
     write_report(metrics, out_dir / "report.md")
