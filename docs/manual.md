@@ -15,8 +15,9 @@ train, evaluate, analyze and release locomotion and perception models.
   `conda activate <isaac-env>` and `source <IsaacLab>/_isaac_sim/setup_conda_env.sh`.
 - The robot model (USD) is not in the repository: set `MELDOG_USD_PATH` to the Meldog
   USD file, or copy it to `assets/robots/meldog/Meldog-1.4-no-ground-plane.usd`.
-- Isaac-free unit tests: `python tests/test_heightmap_transform.py` and
-  `python tests/test_elevation_mapper.py`.
+- Isaac-free unit tests: `python tests/test_heightmap_transform.py`,
+  `python tests/test_elevation_mapper.py`, `python tests/test_robot_specs.py` and
+  `python tests/test_benchmark_terrains.py`.
 
 ## 1. Locomotion Tasks
 
