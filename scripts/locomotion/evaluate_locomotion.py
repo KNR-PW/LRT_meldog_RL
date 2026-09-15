@@ -191,9 +191,17 @@ def main():
     if args_cli.record:
         tag = task_tag(args_cli.task)
         if args_cli.benchmark:
-            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}"
+            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}_{args_cli.num_envs}envs"
         save_dir = make_evaluation_dir("locomotion", tag, base_dir=args_cli.output_root)
-        save_dir.mkdir(parents=True, exist_ok=True)
+        # Parallel runs can start in the same second: never write into an existing folder.
+        base_name, n = save_dir.name, 1
+        while True:
+            try:
+                save_dir.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                n += 1
+                save_dir = save_dir.with_name(f"{base_name}_{n}")
         print(f"[INFO] Recording rollout to: {save_dir / 'rollout.h5'}")
 
         # Foot body indices: forces come from the contact sensor, kinematics from
