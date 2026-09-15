@@ -31,6 +31,29 @@ On our machine the benchmark is deterministic: the 2026-07-27 run and several ru
 
 Known gaps: body pitch relative to terrain not corrected (squared posture penalties cause leg-bracing; a deadband is the proposed fix), higher energy use and torque saturation than v1.0-rough, and the impact metric under-reports.
 
+## Benchmark under the updated conditions (2026-09-16)
+The benchmark above used randomly truncated episodes (most shorter than 20 s), so its survival
+rate overstates robustness. Re-measured with the current benchmark: full 20 s episodes, the same
+fall rule for every robot, `--profile clean`, Meldog's shared terrains with fixed terrain cells,
+192 envs. The reference range is the minimum-maximum over six published Isaac Lab rough policies
+(ANYmal-B/C/D, Go1, Go2, A1; see `docs/evaluation.md`).
+
+| metric (shared rough terrain) | v2.0-rough | v1.0-rough | reference range |
+|---|---|---|---|
+| survival_rate | 0.74 | 0.995 | 0.92-1.00 |
+| tracking.lin_err (m/s) | 0.083 | 0.037 | 0.045-0.075 |
+| tracking.ang_err (rad/s) | 0.239 | 0.224 | 0.06-0.18 |
+| gait.phase_offset (FR, RL, RR vs FL) | 0.52, 0.51, 0.03 | 0.64, 0.29, 0.62 | ≈0.5, 0.5, 0.0-0.1 |
+| gait.stride_freq (Hz) | 1.72 | 1.09 | 1.68-2.36 |
+| posture.pitch_terrain_rel_std (rad) | 0.196 | 0.090 | 0.026-0.071 |
+| impact.peak_force_bw_p95 (BW) | 0.86 | 0.73 | 0.90-1.77 |
+| actuator.torque_sat_pct (%) | 8.1 | 1.3 | 0.00-0.38 |
+| energy.cost_of_transport | 0.86 | 0.70 | 0.48-1.16 |
+
+On the shared rough terrain v2.0-rough falls mainly on stairs (up and down) and on boxes from
+difficulty row 3 onward, where v1.0-rough and all reference policies stay upright. On flat terrain
+both versions survive every episode.
+
 ## Usage
 Run inside your Isaac Lab environment (see `docs/manual.md`):
 ```bash
