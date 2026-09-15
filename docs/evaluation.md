@@ -54,6 +54,37 @@ Reinforcement Learning* (Rudin et al., 2021) for the training and reward setup;
 *Learning robust perceptive locomotion for quadrupedal robots in the wild* (Miki et al.,
 2022) for the gait quality to aim for.
 
+## Reference robots (measured 2026-09-16)
+
+What a good policy looks like under the benchmark, measured on six published Isaac Lab
+rough-terrain policies (NVIDIA pretrained checkpoints for ANYmal-B, ANYmal-C, ANYmal-D,
+Unitree Go1, Go2 and A1; 1500 training iterations each): `--benchmark --profile clean`,
+192 envs (8 per terrain cell), same command script for every robot. Values are the minimum and
+maximum over the six policies. The robots weigh 13-57 kg with legs of 0.40-0.74 m (Meldog: 22.5 kg,
+0.50 m), so size-dependent metrics (stride frequency, trunk height, slip, touchdown velocity) should
+be read with the robot's size in mind. ANYmal and Go1 use learned actuator models that smooth their
+motion; Go2 and A1 use DC motor models like Meldog.
+
+| Metric | Shared `flat` terrain | Shared `rough` terrain |
+|---|---|---|
+| `survival_rate` | 0.96-1.00 | 0.92-1.00 |
+| `tracking.lin_err` (m/s) | 0.040-0.060 | 0.045-0.075 |
+| `tracking.ang_err` (rad/s) | 0.05-0.18 | 0.06-0.18 |
+| `gait.duty_factor` (per foot) | 0.34-0.75 | 0.35-0.75 |
+| `gait.phase_offset` (FR, RL, RR) | 0.46-0.52, 0.47-0.61, 0.00-0.07 | 0.46-0.53, 0.51-0.60, 0.02-0.10 |
+| `gait.stride_freq` (Hz) | 1.67-2.38 | 1.68-2.36 |
+| `slip.mean_vel` (m/s) | 0.053-0.148 | 0.071-0.160 |
+| `impact.peak_force_bw_p95` (BW) | 0.73-1.50 | 0.90-1.77 |
+| `impact.touchdown_vel` (m/s) | 0.043-0.153 | 0.078-0.203 |
+| `posture.pitch_terrain_rel_std` (rad) | 0.018-0.046 | 0.026-0.071 |
+| `posture.base_height` (m) | 0.25-0.56 | 0.25-0.56 |
+| `actuator.torque_sat_pct` (%) | 0.00-0.02 | 0.00-0.38 |
+| `actuator.vel_sat_pct` (%) | 0.0-1.6 | 0.0-1.7 |
+| `energy.cost_of_transport` | 0.43-1.08 | 0.48-1.16 |
+
+`scripts/locomotion/compare_metrics.py --bands meldog` prints this band for any set of runs and
+marks where a robot's values fall outside it.
+
 ## Perception
 
 These are **relative requirements** for the thesis, not absolute literature values: the
