@@ -60,7 +60,7 @@ What a good policy looks like under the benchmark, measured on six published Isa
 rough-terrain policies (NVIDIA pretrained checkpoints for ANYmal-B, ANYmal-C, ANYmal-D,
 Unitree Go1, Go2 and A1; 1500 training iterations each): `--benchmark --profile clean`,
 192 envs (8 per terrain cell), same command script for every robot. Values are the minimum and
-maximum over the six policies. The robots weigh 13-57 kg with legs of 0.40-0.74 m (Meldog: 22.5 kg,
+maximum over the six policies. The robots weigh 13-52 kg in simulation with legs of 0.40-0.74 m (Meldog: 22.5 kg,
 0.50 m), so size-dependent metrics (stride frequency, trunk height, slip, touchdown velocity) should
 be read with the robot's size in mind. ANYmal and Go1 use learned actuator models that smooth their
 motion; Go2 and A1 use DC motor models like Meldog.
