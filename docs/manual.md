@@ -140,10 +140,26 @@ python scripts/locomotion/evaluate_locomotion.py \
 ```
 
 - `--full_episodes`: count only each env's first episode and start it at step 0. Meldog's
-  env randomizes episode length on reset, so without this flag most benchmark episodes are
-  shorter than 20 s. With it, every env runs a full-length episode unless it falls, and
-  `--num_episodes` is set to `--num_envs`. Survival rates with and without this flag are not
-  comparable.
+  env randomizes episode length on reset, so otherwise most episodes are shorter than 20 s.
+  Every env then runs a full-length episode unless it falls, and `--num_episodes` is set to
+  `--num_envs`. **Always on in benchmark mode.** Survival rates from before this change
+  (benchmarks recorded before 2026-09-15) are not comparable.
+- In benchmark mode every robot is evaluated under the same conditions, whatever its task
+  was trained with:
+  - `--profile clean` (default): no observation noise, no pushes or mass randomization,
+    nominal friction (0.8 / 0.6), reset at the default pose with yaw 0, terrain curriculum off.
+  - `--profile real`: `clean` plus uniform observation noise (lin vel ±0.1 m/s, ang vel
+    ±0.2 rad/s, gravity ±0.05, joint pos ±0.01 rad, joint vel ±1.5 rad/s, height scan ±0.1 m),
+    friction 0.4-1.2 / 0.3-1.0, trunk mass ±10 % and velocity pushes of ±0.5 m/s every 10-15 s.
+  - The contact sensor keeps every physics substep (history = decimation), and a fall is
+    counted the same way for every robot: trunk contact force above 1 N or trunk tilt above
+    1.0 rad.
+- `--bench_terrain task|flat|rough|obs|rough_obs` (default `task`): `task` keeps the task's own
+  terrain; the others are Meldog's shared terrains (`rough` = the Rough task generator, `obs` /
+  `rough_obs` = the FlatObs / RoughObs generators with tall obstacles and walls). Each env gets a
+  fixed terrain cell: every sub-terrain kind at difficulty rows 0, 3, 6 and 9. The report then
+  shows survival per terrain kind and row.
+- `--output_root DIR`: create the evaluation folder inside `DIR` instead of `logs/locomotion`.
 
 ### E. Reference robots (Isaac Lab quadrupeds)
 The same evaluator runs the Isaac Lab velocity tasks, so their policies are measured exactly

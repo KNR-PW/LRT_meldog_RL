@@ -12,27 +12,31 @@ range here, change it in the analyzer too.
 ## Locomotion
 
 The ranges apply to **benchmark-mode** runs (`evaluate_locomotion.py --benchmark`: fixed
-seed, terrain and command script). On random rough terrain, attitude and impact ranges
-loosen: flag, don't fail.
+seed, terrain cells, command script, full 20 s episodes, `clean` profile unless stated).
+Survival counts each env's first episode; a fall is trunk contact above 1 N or trunk tilt
+above 1.0 rad. On non-flat terrain the raw attitude is a trend metric and the terrain-relative
+posture (`posture.*_terrain_rel_*`) carries the attitude ranges instead.
 
 | Metric | ✅ good | ⚠️ acceptable | ❌ investigate | Conf. | Source / note |
 |---|---|---|---|---|---|
 | `survival_rate` (flat / rough) | >99 / >95 % | >95 / >85 % | below | M | our own early results as a floor |
 | `tracking.lin_err` (m/s) | <0.15 | <0.30 | ≥0.30 | M | exponential tracking reward geometry (Isaac Lab velocity env) |
 | `tracking.ang_err` (rad/s) | <0.20 | <0.40 | ≥0.40 | M | same |
-| `attitude.roll_mean`, `pitch_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | a nonzero mean is a persistent lean; flat benchmark only |
-| `attitude.roll_std`, `pitch_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | flat benchmark; informational on rough |
+| `attitude.roll_mean`, `pitch_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | a nonzero mean is a persistent lean; flat terrain only |
+| `attitude.roll_std`, `pitch_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | flat terrain only; trend metric elsewhere |
+| `posture.roll_terrain_rel_mean`, `pitch_terrain_rel_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | tilt relative to the local terrain plane; used instead of attitude on non-flat terrain |
+| `posture.roll_terrain_rel_std`, `pitch_terrain_rel_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | same, non-flat terrain |
 | `gait.duty_factor` (per foot) | 0.50–0.65 | 0.45–0.75 | outside | H | trot at moderate speed; a walk is higher |
 | duty-factor spread across feet | <0.05 | <0.10 | ≥0.10 | H | gait symmetry |
 | `gait.phase_offset` vs front-left (FR, RL, RR) | 0.5, 0.5, 0.0 ±0.10 | ±0.15 | outside / null | H | trot signature: diagonal pairs in phase. Null = no stable gait cycle (reported, not flagged) |
 | `gait.stride_freq` (Hz) | 1.0–2.5 | 0.8–3.0 | outside | M | ANYmal ≈1–1.5 Hz, Go2-scale ≈2–3 Hz; above the range looks rushed |
 | `slip.mean_vel` (m/s, feet in contact) | <0.05 | <0.20 | ≥0.20 | L–M | visible sliding starts around 0.2 |
-| `impact.peak_force_bw` (per foot, × body weight) | <2.0 | <3.0 | ≥3.0 | L | nominal trot ≈1–1.5 BW; ≥3 looks like feet smashing down |
+| `impact.peak_force_bw_p95` (95th percentile of touchdown peaks, × body weight) | <2.0 | <3.0 | ≥3.0 | L | nominal trot ≈1–1.5 BW; ≥3 looks like feet smashing down. The mean (`peak_force_bw`) and maximum (`peak_force_bw_max`) are reported as trend metrics; a mean hides occasional smashes |
 | `impact.touchdown_vel` (m/s) | <0.3 | <0.5 | ≥0.5 | L | heuristic |
 | `smooth.action_rate` | — | — | — | — | trend metric: compare between checkpoints only |
 | `smooth.joint_acc` | — | — | — | — | trend metric |
-| `actuator.torque_sat_pct` (of 0.9 × 35 Nm) | <5 % | <20 % | ≥20 % | M | sustained saturation means an actuator-limited policy, a sim-to-real risk |
-| `actuator.vel_sat_pct` (of 0.9 × limit) | <1 % | <5 % | ≥5 % | M | any saturation suggests wild motion |
+| `actuator.torque_sat_pct` (of 0.9 × each joint's effort limit) | <5 % | <20 % | ≥20 % | M | sustained saturation means an actuator-limited policy, a sim-to-real risk |
+| `actuator.vel_sat_pct` (of 0.9 × each joint's velocity limit) | <1 % | <5 % | ≥5 % | M | any saturation suggests wild motion |
 | `energy.cost_of_transport` | <1.0 | <2.0 | ≥2.0 | L–M | quadruped robots typically 0.4–1.2 at moderate speed |
 
 Notes:
@@ -42,8 +46,8 @@ Notes:
 - `impact.peak_force_bw` uses the maximum over physics substeps when the recording
   provides it; `meta.impact_force_source` in `metrics.json` says which source was used.
   Older snapshot-based recordings can under-read peaks.
-- `swing.apex_height` and `swing.knee_excursion` (per foot) and the `posture.*` metrics
-  are trend metrics without a range yet.
+- `swing.apex_height`, `swing.knee_excursion` (per foot) and `posture.base_height*` are trend
+  metrics without a range yet.
 
 Background reading: *Learning to Walk in Minutes Using Massively Parallel Deep
 Reinforcement Learning* (Rudin et al., 2021) for the training and reward setup;
