@@ -166,11 +166,17 @@ from meldog_rl.utils.git_utils import get_git_suffix
 
 # Contact detection threshold (Newtons) -- matches the env's contact visualization.
 CONTACT_FORCE_THRESHOLD = 1.0
+FALL_TILT_RAD = 1.0            # trunk tilt that counts as a fall
+FALL_BASE_FORCE_BW = 0.2       # trunk contact force that counts as a fall, in body weights.
+# A fixed 1 N counted a brush as a fall: policies trained without contact termination walk with
+# the trunk low and touch obstacles constantly without ever falling (robot_lab ANYmal-D walks at
+# 0.23 m trunk height and touched something in 191 of 192 envs).
 
 # Leg length the 'froude' command scaling is relative to (Meldog: 0.25 m thigh + 0.25 m shank).
 FROUDE_REFERENCE_LEG_M = 0.50
 # Real profile: per-env motor strength factor on the actuators' effort limits.
 REAL_MOTOR_STRENGTH = (0.8, 1.2)
+
 
 def main():
     """Evaluate policy, report statistics, and record the rollout."""
@@ -198,11 +204,6 @@ def main():
     if args_cli.benchmark:
         for line in adapter.apply_benchmark(env_cfg, args_cli.profile, args_cli.bench_terrain):
             print(f"[BENCH] {line}")
-    FALL_TILT_RAD = 1.0            # trunk tilt that counts as a fall
-    FALL_BASE_FORCE_BW = 0.2       # trunk contact force that counts as a fall, in body weights.
-    # A fixed 1 N counted a brush as a fall: policies trained without contact termination walk
-    # with the trunk low and touch obstacles constantly without ever falling (robot_lab ANYmal-D
-    # walks at 0.23 m trunk height and touched something in 191 of 192 envs).
 
     print(f"[INFO] Evaluating: {args_cli.checkpoint}")
     print(f"[INFO] Running {args_cli.num_envs} envs for {args_cli.num_episodes} total episodes.")
@@ -645,6 +646,9 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
             a["terrain_cell_kinds"] = [c[2] for c in first["cells"]]
         a["git_commit"] = get_git_suffix()
         a["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Last write, on purpose: the analyzer refuses a file without it. Isaac Sim exits 0 even
+        # after an exception, so a crash while writing this file looked like a successful run.
+        a["complete"] = True
 
     size_mb = rollout_path.stat().st_size / 1e6
     print(f"[INFO] rollout.h5 written: {T} steps x {E} envs ({size_mb:.1f} MB).")

@@ -378,12 +378,34 @@ def aggregate_array(values, length):
 # Rollout loading / segmentation
 # ---------------------------------------------------------------------------
 def load_rollout(path: Path):
-    """Load all datasets + attrs from rollout.h5 into a plain dict."""
+    """Load all datasets + attrs from rollout.h5 into a plain dict.
+
+    Refuses a rollout the evaluator did not finish writing. Isaac Sim returns exit code 0 even
+    when the script raised, so an unfinished file reaches here looking like a normal run; without
+    this check the benchmark metrics fall back to the weaker episode-based survival and the
+    numbers look plausible but are not comparable.
+    """
     data = {}
     with h5py.File(path, "r") as f:
         for k in f.keys():
             data[k] = f[k][()]
         data["_attrs"] = {k: f.attrs[k] for k in f.attrs}
+    attrs = data["_attrs"]
+    missing = []
+    if attrs.get("benchmark_mode", False):
+        # 'complete' is the evaluator's last write; rollouts recorded before it existed end with
+        # 'date' instead, which is written immediately before it.
+        if not attrs.get("complete", False) and "date" not in attrs:
+            missing.append("attribute 'complete' (written last by the evaluator)")
+        if attrs.get("full_episodes", False) and "first_episode_survived" not in data:
+            missing.append("dataset 'first_episode_survived'")
+    if missing:
+        raise SystemExit(
+            f"[ERROR] Incomplete benchmark rollout: {path}\n"
+            f"        missing {', '.join(missing)}.\n"
+            "        The evaluation crashed while writing the file; re-run the benchmark. "
+            "Its run log ends with the traceback."
+        )
     return data
 
 
