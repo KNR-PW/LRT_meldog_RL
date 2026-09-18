@@ -296,7 +296,7 @@ def resolve_knee_defaults(data, k_idx):
     return np.full(4, DEFAULT_KNEE_ANGLE)
 
 
-def detect_period_steps(sig: np.ndarray, dt: float):
+def detect_period_steps(sig: np.ndarray, dt: float, return_peak: bool = False):
     """Fundamental period (in steps) of a binary contact signal via autocorrelation.
 
     Returns None if no stable cycle is detectable (short signal, no periodicity, or
@@ -318,8 +318,25 @@ def detect_period_steps(sig: np.ndarray, dt: float):
     # First prominent local maximum (the fundamental) above threshold.
     for i in range(lo, hi + 1):
         if ac[i] > ac[i - 1] and ac[i] >= ac[i + 1] and ac[i] > MIN_AUTOCORR_PEAK:
-            return i
+            return (i, float(ac[i])) if return_peak else i
     return None
+
+
+def detect_period_best_foot(contact: np.ndarray, dt: float):
+    """(period in steps, foot index) using the foot with the clearest cycle.
+
+    Taking the front-left foot alone loses the whole gait section when that one foot
+    misbehaves, which happens exactly on the policies worth looking at.
+    """
+    best = None
+    for foot in range(contact.shape[1]):
+        found = detect_period_steps(contact[:, foot].astype(float), dt, return_peak=True)
+        if found is None:
+            continue
+        period, peak = found
+        if best is None or peak > best[2]:
+            best = (period, foot, peak)
+    return (best[0], best[1]) if best else (None, None)
 
 
 def phase_offset_xcorr(ref: np.ndarray, other: np.ndarray, period_steps: int):
@@ -447,7 +464,8 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     m["duty_factor"] = np.mean(contact, axis=0)  # (4,)
     m["duty_factor_spread"] = float(np.max(m["duty_factor"]) - np.min(m["duty_factor"]))
 
-    period = detect_period_steps(contact[:, 0].astype(float), dt)  # FL foot
+    period, ref_foot = detect_period_best_foot(contact, dt)
+    m["stride_ref_foot"] = ref_foot
     if period is not None:
         m["stride_freq"] = 1.0 / (period * dt)
         offs = []
@@ -557,8 +575,39 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
         m["joint_acc"] = None
 
     # --- actuator saturation ---
-    m["torque_sat_pct"] = float(100.0 * np.mean(np.abs(torque) > 0.9 * effort_limit))
+    sat = np.abs(torque) > 0.9 * effort_limit
+    m["torque_sat_pct"] = float(100.0 * np.mean(sat))
     m["vel_sat_pct"] = float(100.0 * np.mean(np.abs(jvel) > 0.9 * vel_limit))
+    # Per joint: one number hides that only a few joints are at their limit.
+    m["torque_sat_pct_per_joint"] = 100.0 * np.mean(sat, axis=0)
+    m["torque_mean_abs_per_joint"] = np.mean(np.abs(torque), axis=0)
+
+    # --- left/right and front/rear asymmetry (FL, FR, RL, RR order) ---
+    leg_idx = data.get("leg_joint_idx")
+    m["torque_per_leg"] = m["sat_per_leg"] = None
+    m["asym_torque_lr"] = m["asym_sat_lr"] = m["asym_duty_lr"] = None
+    m["asym_torque_fr"] = m["asym_duty_fr"] = m["asym_apex_lr"] = None
+    duty = m["duty_factor"]
+    left, right, front, rear = (0, 2), (1, 3), (0, 1), (2, 3)
+
+    def _side(values, idx):
+        return float(np.mean([values[i] for i in idx]))
+
+    def _rel(a, b):
+        return float((a - b) / (a + b)) if (a + b) > 1e-9 else None
+
+    if leg_idx is not None:
+        per_leg_torque = np.array([np.mean(np.abs(torque[:, list(j)])) for j in np.asarray(leg_idx)])
+        per_leg_sat = np.array([100.0 * np.mean(sat[:, list(j)]) for j in np.asarray(leg_idx)])
+        m["torque_per_leg"] = per_leg_torque
+        m["sat_per_leg"] = per_leg_sat
+        m["asym_torque_lr"] = _rel(_side(per_leg_torque, left), _side(per_leg_torque, right))
+        m["asym_torque_fr"] = _rel(_side(per_leg_torque, front), _side(per_leg_torque, rear))
+        m["asym_sat_lr"] = _side(per_leg_sat, left) - _side(per_leg_sat, right)
+    m["asym_duty_lr"] = _side(duty, left) - _side(duty, right)
+    m["asym_duty_fr"] = _side(duty, front) - _side(duty, rear)
+    if np.isfinite(swing_apex).all():
+        m["asym_apex_lr"] = _side(swing_apex, left) - _side(swing_apex, right)
 
     # --- energy / cost of transport ---
     power = np.sum(np.abs(torque * jvel), axis=1)       # (L,)
@@ -589,6 +638,14 @@ def survival_by_terrain(data):
     return out
 
 
+def _most_common_foot(values):
+    """Foot index used most often for the stride cycle, as its FL/FR/RL/RR label."""
+    picks = [v for v in values if v is not None]
+    if not picks:
+        return None
+    return FOOT_LABELS[max(set(picks), key=picks.count)]
+
+
 def build_metrics(data, segments):
     dt = float(data["_attrs"]["step_dt"])
     # Per-joint limits when recorded (inf = no fixed limit, never counted as saturated).
@@ -598,6 +655,7 @@ def build_metrics(data, segments):
                  else float(data["_attrs"]["joint_velocity_limit"]))
 
     k_idx = resolve_k_idx(data["_attrs"], data)
+    n_joints = int(data["joint_pos"].shape[-1])
 
     if "first_episode_survived" in data:
         # Full-episode benchmark: one episode per env, survival from the evaluator's fall rule.
@@ -638,6 +696,7 @@ def build_metrics(data, segments):
             "phase_offset": aggregate_array(col("phase_offset"), 3),
             "stride_freq": aggregate(col("stride_freq")),
             "cycle_detected_frac": (n_cycle / len(per_ep)) if per_ep else None,
+            "stride_ref_foot": _most_common_foot(col("stride_ref_foot")),
         },
         "slip": {
             "mean_vel": aggregate(col("slip_mean_vel")),
@@ -672,6 +731,22 @@ def build_metrics(data, segments):
         "actuator": {
             "torque_sat_pct": aggregate(col("torque_sat_pct")),
             "vel_sat_pct": aggregate(col("vel_sat_pct")),
+            "joint_names": _decode_str_list(data["_attrs"].get("joint_names")),
+            "torque_sat_pct_per_joint": aggregate_array(col("torque_sat_pct_per_joint"), n_joints),
+            "torque_mean_abs_per_joint": aggregate_array(col("torque_mean_abs_per_joint"), n_joints),
+        },
+        # Left/right and front/rear asymmetry: a policy can track well and still load one side
+        # much harder than the other, which no other metric shows.
+        "asymmetry": {
+            "leg_order": "FL,FR,RL,RR",
+            "torque_per_leg": aggregate_array(col("torque_per_leg"), 4),
+            "sat_pct_per_leg": aggregate_array(col("sat_per_leg"), 4),
+            "torque_left_right": aggregate(col("asym_torque_lr")),
+            "torque_front_rear": aggregate(col("asym_torque_fr")),
+            "sat_pct_left_right": aggregate(col("asym_sat_lr")),
+            "duty_left_right": aggregate(col("asym_duty_lr")),
+            "duty_front_rear": aggregate(col("asym_duty_fr")),
+            "swing_apex_left_right": aggregate(col("asym_apex_lr")),
         },
         "energy": {
             "cost_of_transport": aggregate(col("cost_of_transport")),
@@ -934,6 +1009,18 @@ def fmt_array(agg, unit=""):
     return ", ".join(f"{mo:.3g}+/-{so:.2g}" for mo, so in zip(means, stds)) + unit
 
 
+def _worst_joints(actuator, count):
+    """'name 12.3 %, ...' for the joints that spend most time at their torque limit."""
+    per_joint = actuator.get("torque_sat_pct_per_joint")
+    names = actuator.get("joint_names")
+    if not per_joint or not names:
+        return None
+    pairs = sorted(zip(names, per_joint["mean"]), key=lambda kv: -kv[1])[:count]
+    if pairs[0][1] < 0.05:
+        return "none above 0.05 %"
+    return ", ".join(f"{n} {v:.1f} %" for n, v in pairs)
+
+
 def write_report(metrics, out_path):
     meta = metrics["meta"]
     L = metrics["locomotion"]
@@ -1007,6 +1094,21 @@ def write_report(metrics, out_path):
         lines.append(f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | {fl('posture.pitch_terrain_rel_std') or 'trend'} |")
         lines.append(f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | {fl('posture.roll_terrain_rel_mean') or 'trend'} |")
         lines.append(f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | {fl('posture.roll_terrain_rel_std') or 'trend'} |")
+    A = L.get("asymmetry") or {}
+    if A.get("duty_left_right") is not None:
+        lines.append(f"| asymmetry.duty_left_right | {fmt(A['duty_left_right'])} | trend |")
+        lines.append(f"| asymmetry.duty_front_rear | {fmt(A['duty_front_rear'])} | trend |")
+    if A.get("torque_left_right") is not None:
+        lines.append(f"| asymmetry.torque_left_right (share, +1 = all load left) | {fmt(A['torque_left_right'])} | trend |")
+        lines.append(f"| asymmetry.torque_front_rear | {fmt(A['torque_front_rear'])} | trend |")
+        lines.append(f"| asymmetry.sat_pct_left_right | {fmt(A['sat_pct_left_right'], unit=' pp')} | trend |")
+        lines.append(f"| asymmetry.sat_pct_per_leg [FL,FR,RL,RR] | {fmt_array(A['sat_pct_per_leg'], unit=' %')} | trend |")
+        lines.append(f"| asymmetry.torque_per_leg [FL,FR,RL,RR] | {fmt_array(A['torque_per_leg'], unit=' Nm')} | trend |")
+    if A.get("swing_apex_left_right") is not None:
+        lines.append(f"| asymmetry.swing_apex_left_right | {fmt(A['swing_apex_left_right'], unit=' m')} | trend |")
+    worst = _worst_joints(L["actuator"], 3)
+    if worst:
+        lines.append(f"| actuator.torque_sat_pct worst joints | {worst} | trend |")
     lines.append(f"| smooth.action_rate | {fmt(L['smooth']['action_rate'])} |  |")
     lines.append(f"| smooth.joint_acc | {fmt(L['smooth']['joint_acc'], unit=' rad/s^2')} |  |")
     lines.append(f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |")

@@ -40,7 +40,9 @@ def str2bool(v):
 parser = argparse.ArgumentParser(description="Evaluate Meldog locomotion policy.")
 parser.add_argument("--task", type=str, default="Meldog-RL-Locomotion-Rough-Sim-v0", help="Task name.")
 parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint.")
-parser.add_argument("--num_envs", type=int, default=100, help="Number of parallel environments.")
+parser.add_argument("--num_envs", type=int, default=None,
+                    help="Number of parallel environments (default: 100, or 192 in benchmark mode: "
+                         "8 per terrain cell, which survival needs to be stable).")
 parser.add_argument("--num_episodes", type=int, default=100, help="Total episodes to evaluate.")
 parser.add_argument("--seed", type=int, default=42, help="Random seed.")
 parser.add_argument("--record", type=str2bool, default=True,
@@ -77,6 +79,21 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--bench_commands", type=str, default="absolute", choices=["absolute", "froude"],
+    help=(
+        "Benchmark command script: 'absolute' gives every robot the same speeds; 'froude' scales "
+        "them with the square root of leg length relative to Meldog (0.50 m), so robots of "
+        "different size are compared at dynamically similar speeds."
+    ),
+)
+parser.add_argument(
+    "--video", action="store_true",
+    help="Record a video of the run (third-person camera following one env) into the eval folder.",
+)
+parser.add_argument("--video_length", type=int, default=400,
+                    help="Video length in steps (400 steps = 8 s at 50 Hz).")
+parser.add_argument("--video_env", type=int, default=0, help="Env index the video camera follows.")
+parser.add_argument(
     "--output_root", type=str, default=None,
     help="Parent folder for the evaluation folder (default: logs/locomotion).",
 )
@@ -92,7 +109,15 @@ parser.add_argument(
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
+# The robot's own perception cameras stay off unless the user asked for them; --video only needs
+# the render pipeline for the scene camera.
+USER_ENABLE_CAMERAS = bool(args_cli.enable_cameras)
+if args_cli.video:
+    args_cli.enable_cameras = True
+
 # Benchmark mode pins the seed so terrain generation and resets are reproducible.
+if args_cli.num_envs is None:
+    args_cli.num_envs = 192 if args_cli.benchmark else 100
 if args_cli.benchmark:
     args_cli.seed = 42
     args_cli.full_episodes = True  # benchmark episodes are always full length (finding E1)
@@ -136,6 +161,11 @@ from meldog_rl.utils.git_utils import get_git_suffix
 # Contact detection threshold (Newtons) -- matches the env's contact visualization.
 CONTACT_FORCE_THRESHOLD = 1.0
 
+# Leg length the 'froude' command scaling is relative to (Meldog: 0.25 m thigh + 0.25 m shank).
+FROUDE_REFERENCE_LEG_M = 0.50
+# Real profile: per-env motor strength factor on the actuators' effort limits.
+REAL_MOTOR_STRENGTH = (0.8, 1.2)
+
 def main():
     """Evaluate policy, report statistics, and record the rollout."""
 
@@ -154,8 +184,15 @@ def main():
     # Configure for evaluation (cameras off unless requested; benchmark command setup)
     device = args_cli.device if args_cli.device else "cuda:0"
     adapter.configure_cfg(env_cfg, num_envs=args_cli.num_envs, seed=args_cli.seed, device=device,
-                          enable_cameras=bool(args_cli.enable_cameras), benchmark=args_cli.benchmark)
-    if not args_cli.enable_cameras:
+                          enable_cameras=USER_ENABLE_CAMERAS, benchmark=args_cli.benchmark)
+    if args_cli.video:
+        # Third-person camera following the robot of one env.
+        env_cfg.viewer.origin_type = "asset_root"
+        env_cfg.viewer.asset_name = "robot"
+        env_cfg.viewer.env_index = args_cli.video_env
+        env_cfg.viewer.eye = (2.5, 2.5, 1.5)
+        env_cfg.viewer.lookat = (0.0, 0.0, 0.3)
+    if not USER_ENABLE_CAMERAS:
         print("[INFO] Cameras disabled for faster evaluation.")
     if args_cli.benchmark:
         for line in adapter.apply_benchmark(env_cfg, args_cli.profile, args_cli.bench_terrain):
@@ -166,8 +203,29 @@ def main():
     print(f"[INFO] Evaluating: {args_cli.checkpoint}")
     print(f"[INFO] Running {args_cli.num_envs} envs for {args_cli.num_episodes} total episodes.")
 
+    # Output folder first: the video wrapper needs it before the env exists.
+    save_dir = None
+    if args_cli.record or args_cli.video:
+        tag = task_tag(args_cli.task)
+        if args_cli.benchmark:
+            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}_{args_cli.num_envs}envs"
+        save_dir = make_evaluation_dir("locomotion", tag, base_dir=args_cli.output_root)
+        base_name, n = save_dir.name, 1
+        while True:
+            try:
+                save_dir.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                n += 1
+                save_dir = save_dir.with_name(f"{base_name}_{n}")
+
     # Create environment
-    env = gym.make(args_cli.task, cfg=env_cfg)
+    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+    if args_cli.video:
+        env = gym.wrappers.RecordVideo(env, video_folder=str(save_dir / "video"), disable_logger=True,
+                                       step_trigger=lambda step: step == 0,
+                                       video_length=args_cli.video_length)
+        print(f"[INFO] Recording {args_cli.video_length} steps of video (env {args_cli.video_env}).")
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     raw_env = env.unwrapped
     adapter.bind(raw_env)
@@ -179,6 +237,23 @@ def main():
         env.reset()
         print(f"[BENCH] fixed terrain cells: {sorted(set((c[2], c[0]) for c in cells))}")
 
+    # Command scaling: 'froude' compares robots at dynamically similar speeds (v ~ sqrt(leg length)).
+    cmd_scale = (1.0, 1.0)
+    if args_cli.benchmark and args_cli.bench_commands == "froude":
+        thigh, shank = adapter.leg_segment_lengths()
+        leg_length = float((thigh + shank).mean())
+        k = (leg_length / FROUDE_REFERENCE_LEG_M) ** 0.5
+        cmd_scale = (k, 1.0 / k)
+        print(f"[BENCH] froude commands: leg {leg_length:.3f} m -> linear x{k:.2f}, angular x{1 / k:.2f}")
+
+    # Real profile: motor strength randomization (works for every actuator model, they all clip
+    # at the effort limit) plus a one-step action delay, applied in the loop below.
+    if args_cli.benchmark and args_cli.profile == "real":
+        factors = torch.empty(args_cli.num_envs, device=device).uniform_(*REAL_MOTOR_STRENGTH)
+        adapter.scale_effort_limits(factors)
+        print(f"[BENCH] motor strength x{REAL_MOTOR_STRENGTH[0]}-{REAL_MOTOR_STRENGTH[1]} per env, "
+              "one control-step action delay")
+
     # Load policy
     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
     runner.load(args_cli.checkpoint)
@@ -187,32 +262,21 @@ def main():
     # ------------------------------------------------------------------
     # Recording setup
     # ------------------------------------------------------------------
-    save_dir = None
     rec = None
-    feet_sensor_ids = feet_robot_ids = hip_robot_ids = None
+    feet_sensor_ids = feet_robot_ids = hip_robot_ids = leg_joint_ids = None
     foot_names_canonical = None
     has_terrain_levels = has_terrain_types = has_posture = False
     terrain = None
     if args_cli.record:
-        tag = task_tag(args_cli.task)
-        if args_cli.benchmark:
-            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}_{args_cli.num_envs}envs"
-        save_dir = make_evaluation_dir("locomotion", tag, base_dir=args_cli.output_root)
-        # Parallel runs can start in the same second: never write into an existing folder.
-        base_name, n = save_dir.name, 1
-        while True:
-            try:
-                save_dir.mkdir(parents=True, exist_ok=False)
-                break
-            except FileExistsError:
-                n += 1
-                save_dir = save_dir.with_name(f"{base_name}_{n}")
         print(f"[INFO] Recording rollout to: {save_dir / 'rollout.h5'}")
 
         # Foot body indices: forces come from the contact sensor, kinematics from
         # the articulation. Both are reordered independently to FL, FR, RL, RR.
         feet_sensor_ids, feet_robot_ids, foot_names_canonical = adapter.foot_ids()
         hip_robot_ids = adapter.hip_body_ids()
+        leg_joint_ids = adapter.leg_joint_ids()
+        if leg_joint_ids is None:
+            print("[WARN] joint names do not group per leg; the analyzer skips the asymmetry metrics.")
         print(f"[INFO] Robot '{adapter.spec.name}': feet (FL,FR,RL,RR) -> {foot_names_canonical}")
 
         rec = {k: [] for k in (
@@ -244,6 +308,9 @@ def main():
     robot = adapter.robot
     contact = adapter.contact_sensor
     obs = env.get_observations()
+    delayed_actions = None
+    if args_cli.benchmark and args_cli.profile == "real":
+        delayed_actions = torch.zeros((args_cli.num_envs, raw_env.action_space.shape[-1]), device=device)
     current_lengths = torch.zeros(args_cli.num_envs, device=device)
     counted = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
     first_fell = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
@@ -271,10 +338,15 @@ def main():
             # the env's own mid-episode resampling so the recorded command stays on
             # script (see benchmark_commands / --benchmark).
             if args_cli.benchmark:
-                adapter.set_commands(benchmark_commands(bench_clock, device))
+                cmd = benchmark_commands(bench_clock, device)
+                cmd[:, :2] *= cmd_scale[0]
+                cmd[:, 2] *= cmd_scale[1]
+                adapter.set_commands(cmd)
                 adapter.freeze_command_resampling()
 
             actions = policy(obs)
+            if delayed_actions is not None:  # real profile: one control step of actuation delay
+                actions, delayed_actions = delayed_actions, actions
             obs, _, dones, infos = env.step(actions)
             current_lengths += 1
             if args_cli.benchmark:
@@ -395,7 +467,8 @@ def main():
     # Write rollout.h5
     # ------------------------------------------------------------------
     if args_cli.record:
-        first = dict(fell=first_fell, survived=first_survived, length=first_length, cells=cells)
+        first = dict(fell=first_fell, survived=first_survived, length=first_length, cells=cells,
+                     leg_joint_ids=leg_joint_ids)
         _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
 
     sys.stdout.flush()
@@ -508,6 +581,9 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
         f.create_dataset("default_joint_pos",
                          data=robot_data.default_joint_pos[0].cpu().numpy().astype(np.float32))
         f.create_dataset("knee_joint_idx", data=np.asarray(adapter.knee_joint_ids(), dtype=np.int32))
+        if first["leg_joint_ids"] is not None:
+            # (4, joints per leg) in FL, FR, RL, RR order -> asymmetry metrics in the analyzer.
+            f.create_dataset("leg_joint_idx", data=np.asarray(first["leg_joint_ids"], dtype=np.int32))
         # Robot size for interpreting results across robots (leg length = thigh + shank).
         thigh_len, shank_len = adapter.leg_segment_lengths()
         f.create_dataset("leg_thigh_lengths", data=thigh_len.numpy().astype(np.float32))  # (4,)
@@ -527,6 +603,7 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
         a["full_episodes"] = bool(args_cli.full_episodes)
         a["profile"] = args_cli.profile if args_cli.benchmark else "task"
         a["bench_terrain"] = args_cli.bench_terrain if args_cli.benchmark else "task"
+        a["bench_commands"] = args_cli.bench_commands if args_cli.benchmark else "task"
         a["contact_history_length"] = int(adapter.contact_sensor.cfg.history_length)
         if args_cli.full_episodes:
             f.create_dataset("first_episode_fell", data=first["fell"].cpu().numpy().astype(np.uint8))

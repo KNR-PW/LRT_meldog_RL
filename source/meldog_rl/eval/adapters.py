@@ -143,6 +143,18 @@ class EnvAdapter:
         terrain.terrain_types[:] = types
         terrain.env_origins[:] = terrain.terrain_origins[levels, types]
 
+    def scale_effort_limits(self, factors) -> None:
+        """Multiply every actuator's effort limit per env (``factors``: (E,) tensor).
+
+        Works for DC motors, actuator networks and lookup-table actuators, because they all clip
+        their output at ``effort_limit``.
+        """
+        for actuator in self.robot.actuators.values():
+            limit = actuator.effort_limit
+            if limit is None:
+                continue
+            actuator.effort_limit = limit * factors.to(limit.device).view(-1, 1)
+
     def base_sensor_ids(self):
         """Contact-sensor ids of the trunk body (empty if the spec's name does not match)."""
         ids, _ = self.contact_sensor.find_bodies(self.spec.base_body)
@@ -221,6 +233,23 @@ class EnvAdapter:
         thigh_len = torch.norm(pos[shank] - pos[hip], dim=-1)
         shank_len = torch.norm(pos[foot_ids] - pos[shank], dim=-1)
         return thigh_len.cpu(), shank_len.cpu()
+
+    def leg_joint_ids(self):
+        """Joint ids grouped per leg in FL, FR, RL, RR order (None if the names do not group).
+
+        Uses the same leg-label rule as the feet, so it works for every robot in ``robot_specs``.
+        """
+        from .robot_specs import FOOT_ORDER, leg_label
+
+        groups = {label: [] for label in FOOT_ORDER}
+        for idx, name in enumerate(self.robot.data.joint_names):
+            label = leg_label(name, self.spec.name_order)
+            if label in groups:
+                groups[label].append(idx)
+        counts = {len(v) for v in groups.values()}
+        if len(counts) != 1 or counts == {0}:
+            return None
+        return [groups[label] for label in FOOT_ORDER]
 
     def knee_joint_ids(self):
         """Joint ids of the knees in FL, FR, RL, RR order."""

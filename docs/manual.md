@@ -151,7 +151,8 @@ python scripts/locomotion/evaluate_locomotion.py \
     nominal friction (0.8 / 0.6), reset at the default pose with yaw 0, terrain curriculum off.
   - `--profile real`: `clean` plus uniform observation noise (lin vel ±0.1 m/s, ang vel
     ±0.2 rad/s, gravity ±0.05, joint pos ±0.01 rad, joint vel ±1.5 rad/s, height scan ±0.1 m),
-    friction 0.4-1.2 / 0.3-1.0, trunk mass ±10 % and velocity pushes of ±0.5 m/s every 10-15 s.
+    friction 0.4-1.2 / 0.3-1.0, trunk mass ±10 %, velocity pushes of ±0.5 m/s every 10-15 s,
+    motor strength ×0.8-1.2 per robot and one control step of actuation delay.
   - The contact sensor keeps every physics substep (history = decimation), and a fall is
     counted the same way for every robot: trunk contact force above 1 N or trunk tilt above
     1.0 rad.
@@ -161,6 +162,14 @@ python scripts/locomotion/evaluate_locomotion.py \
   fixed terrain cell: every sub-terrain kind at difficulty rows 0, 3, 6 and 9. The report then
   shows survival per terrain kind and row.
 - `--output_root DIR`: create the evaluation folder inside `DIR` instead of `logs/locomotion`.
+- `--num_envs` defaults to **192 in benchmark mode** (8 robots per terrain cell). With fewer envs the
+  survival rate on hard terrain varies by about ±0.1 between runs; the other metrics are stable.
+- `--bench_commands absolute|froude`: `absolute` (default) gives every robot the same speeds;
+  `froude` scales them with the square root of leg length relative to Meldog's 0.50 m, so robots of
+  different size are compared at dynamically similar speeds.
+- `--video [--video_length 400] [--video_env 0]`: record the run with a third-person camera that
+  follows one robot, into `video/` inside the evaluation folder. The robot's own perception cameras
+  stay off unless you also pass `--enable_cameras`.
 
 ### E. Reference robots (Isaac Lab quadrupeds)
 The same evaluator runs the Isaac Lab velocity tasks, so their policies are measured exactly

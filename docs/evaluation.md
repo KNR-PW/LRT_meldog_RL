@@ -39,6 +39,17 @@ posture (`posture.*_terrain_rel_*`) carries the attitude ranges instead.
 | `actuator.vel_sat_pct` (of 0.9 × each joint's velocity limit) | <1 % | <5 % | ≥5 % | M | any saturation suggests wild motion |
 | `energy.cost_of_transport` | <1.0 | <2.0 | ≥2.0 | L–M | quadruped robots typically 0.4–1.2 at moderate speed |
 
+Diagnostic metrics without ranges (reported as trends):
+- `asymmetry.*`: how unevenly the legs work. `torque_left_right` and `torque_front_rear` are shares
+  between −1 and +1 (0 = balanced, +1 = all load on the left / front), `sat_pct_left_right` is the
+  difference in torque-limit time in percentage points, and `torque_per_leg` / `sat_pct_per_leg`
+  give the four legs in FL, FR, RL, RR order. A policy can track its commands well and still load
+  one side far harder than the other; nothing else in the table shows that.
+- `actuator.torque_sat_pct_per_joint` and `torque_mean_abs_per_joint`: the same per joint, with the
+  joint names, so the report can name the joints that sit at their limit.
+- `gait.stride_ref_foot`: which foot the stride cycle was measured from (the one with the clearest
+  cycle), so a single misbehaving foot no longer hides the whole gait section.
+
 Notes:
 - `slip.mean_vel` and `slip.dist_per_step` exclude the first and last sample of every
   contact phase (touchdown and lift-off artifacts); the unfiltered values are reported as
