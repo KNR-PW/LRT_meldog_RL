@@ -445,7 +445,10 @@ def task_tag(task: str) -> str:
     spec = find_robot_spec(task)
     terrain = "flat" if "Flat" in task else "rough" if "Rough" in task else "task"
     direct = "_direct" if "Direct" in task else ""
-    return f"ref_{spec.name}{direct}_{terrain}"
+    # Extensions register the same robots as Isaac Lab; without the source in the name their run
+    # folders are indistinguishable.
+    source = "_robotlab" if task.startswith("RobotLab-") else ""
+    return f"ref_{spec.name}{direct}_{terrain}{source}"
 
 
 __all__ = [
