@@ -88,11 +88,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--video", action="store_true",
-    help="Record a video of the run (third-person camera following one env) into the eval folder.",
+    help="Record a video: four chase cameras on four robots, tiled 2x2, into the eval folder.",
 )
-parser.add_argument("--video_length", type=int, default=400,
-                    help="Video length in steps (400 steps = 8 s at 50 Hz).")
-parser.add_argument("--video_env", type=int, default=0, help="Env index the video camera follows.")
+parser.add_argument("--video_length", type=int, default=500,
+                    help="Video length in simulation steps (500 steps = 10 s at 50 Hz).")
+parser.add_argument("--video_envs", type=int, nargs="*", default=None,
+                    help="Env indices the four chase cameras follow (default: one env per terrain "
+                         "kind, at its hardest difficulty row).")
 parser.add_argument(
     "--output_root", type=str, default=None,
     help="Parent folder for the evaluation folder (default: logs/locomotion).",
@@ -154,6 +156,7 @@ from meldog_rl import agents
 from meldog_rl.eval.adapters import load_cfgs, make_adapter, task_tag
 from meldog_rl.eval.benchmark import BENCHMARK_CYCLE_S, BENCHMARK_SCHEDULE, benchmark_commands
 from meldog_rl.eval.benchmark_terrains import bench_cells
+from meldog_rl.eval.video import BenchmarkVideo, pick_view_envs
 from meldog_rl.utils import make_evaluation_dir
 from meldog_rl.utils.git_utils import get_git_suffix
 
@@ -185,13 +188,6 @@ def main():
     device = args_cli.device if args_cli.device else "cuda:0"
     adapter.configure_cfg(env_cfg, num_envs=args_cli.num_envs, seed=args_cli.seed, device=device,
                           enable_cameras=USER_ENABLE_CAMERAS, benchmark=args_cli.benchmark)
-    if args_cli.video:
-        # Third-person camera following the robot of one env.
-        env_cfg.viewer.origin_type = "asset_root"
-        env_cfg.viewer.asset_name = "robot"
-        env_cfg.viewer.env_index = args_cli.video_env
-        env_cfg.viewer.eye = (2.5, 2.5, 1.5)
-        env_cfg.viewer.lookat = (0.0, 0.0, 0.3)
     if not USER_ENABLE_CAMERAS:
         print("[INFO] Cameras disabled for faster evaluation.")
     if args_cli.benchmark:
@@ -220,22 +216,29 @@ def main():
                 save_dir = save_dir.with_name(f"{base_name}_{n}")
 
     # Create environment
-    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
-    if args_cli.video:
-        env = gym.wrappers.RecordVideo(env, video_folder=str(save_dir / "video"), disable_logger=True,
-                                       step_trigger=lambda step: step == 0,
-                                       video_length=args_cli.video_length)
-        print(f"[INFO] Recording {args_cli.video_length} steps of video (env {args_cli.video_env}).")
+    env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     raw_env = env.unwrapped
     adapter.bind(raw_env)
     cells = None
     if args_cli.benchmark and args_cli.bench_terrain not in ("task", "flat"):
         holder, attr = adapter.terrain_cfg_holder(env_cfg)
-        cells = bench_cells(getattr(holder, attr).terrain_generator, args_cli.num_envs)
+        generator = getattr(holder, attr).terrain_generator
+        cells = bench_cells(generator, args_cli.num_envs)
         adapter.assign_terrain_cells(cells)
         env.reset()
-        print(f"[BENCH] fixed terrain cells: {sorted(set((c[2], c[0]) for c in cells))}")
+        kinds_used = sorted({c[2] for c in cells})
+        print(f"[BENCH] {len(set((c[0], c[1]) for c in cells))} distinct terrain cells over "
+              f"{len(kinds_used)} kinds ({', '.join(kinds_used)}), rows "
+              f"{min(c[0] for c in cells)}-{max(c[0] for c in cells)}; one env per cell.")
+
+    video = None
+    if args_cli.video:
+        view_envs = args_cli.video_envs or pick_view_envs(cells, args_cli.num_envs)
+        video = BenchmarkVideo(adapter.robot, view_envs, save_dir / "video" / "benchmark_4up.mp4")
+        kinds = [cells[i][2] if cells else "task" for i in view_envs]
+        print(f"[INFO] Video: envs {view_envs} ({', '.join(kinds)}), "
+              f"{args_cli.video_length} steps, 2x2 tiled.")
 
     # Command scaling: 'froude' compares robots at dynamically similar speeds (v ~ sqrt(leg length)).
     cmd_scale = (1.0, 1.0)
@@ -308,6 +311,7 @@ def main():
     robot = adapter.robot
     contact = adapter.contact_sensor
     obs = env.get_observations()
+    step_index = 0
     delayed_actions = None
     if args_cli.benchmark and args_cli.profile == "real":
         delayed_actions = torch.zeros((args_cli.num_envs, raw_env.action_space.shape[-1]), device=device)
@@ -352,6 +356,10 @@ def main():
             if args_cli.benchmark:
                 bench_clock += step_dt
                 bench_clock[dones.bool()] = 0.0  # restart clock for reset envs
+
+            if video is not None and step_index < args_cli.video_length:
+                video.capture(step_index)
+            step_index += 1
 
             time_outs = infos.get("time_outs", torch.zeros_like(dones))
 
@@ -432,6 +440,10 @@ def main():
             if total_episodes % 50 == 0 and total_episodes > 0:
                 print(f"Progress: {total_episodes}/{args_cli.num_episodes} | "
                       f"Success: {success_count / total_episodes * 100:.1f}%", end="\r")
+
+    if video is not None:
+        video.close()
+        print(f"[INFO] Video written: {video.path} ({video.frames} frames)")
 
     # Final report
     print("\n" + "=" * 50)

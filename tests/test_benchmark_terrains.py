@@ -44,17 +44,20 @@ def test_column_kinds():
 
 def test_bench_cells():
     gen = rough_like_generator()
-    cells = bt.bench_cells(gen, 48)
-    assert len(cells) == 48
-    kinds = bt.column_kinds(gen)
-    for row, col, kind in cells:
-        assert kinds[col] == kind, (row, col, kind)
-        assert row in bt.BENCH_ROWS
-    # 6 kinds x 4 rows = 24 distinct cells, each used exactly twice with 48 envs
-    distinct = {(r, c) for r, c, _ in cells}
-    assert len(distinct) == 24, len(distinct)
-    assert all(sum(1 for c in cells if (c[0], c[1]) == d) == 2 for d in distinct)
-    print("  OK  48 envs cover every kind at rows 0, 3, 6, 9 twice")
+    for num_envs in (16, 48, 192):
+        cells = bt.bench_cells(gen, num_envs)
+        assert len(cells) == num_envs
+        # Every env needs its own cell: cells share one spawn platform, so robots on the same cell
+        # start on the same spot (stacked) instead of each on its own obstacle.
+        assert len({(row, col) for row, col, _ in cells}) == num_envs, num_envs
+        kinds = bt.column_kinds(gen)
+        for row, col, kind in cells:
+            assert kinds[col] == kind
+        counts = [sum(1 for c in cells if c[2] == kind) for kind in set(kinds)]
+        assert max(counts) - min(counts) <= max(counts) / 2, counts  # roughly balanced over kinds
+    hard_rows = {row for row, _, _ in bt.bench_cells(gen, 16)}
+    assert max(hard_rows) >= gen.num_rows - 2, "a small run must still see the hardest rows"
+    print("  OK  16 / 48 / 192 envs each get their own cell, balanced over kinds and difficulty")
 
 
 if __name__ == "__main__":

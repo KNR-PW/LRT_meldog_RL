@@ -134,14 +134,21 @@ class EnvAdapter:
             log += self._enable_real_obs_noise(env_cfg)
         return log
 
-    def assign_terrain_cells(self, cells) -> None:
-        """Put env i on terrain cell (row, column) ``cells[i]``; takes effect at the next reset."""
+    def assign_terrain_cells(self, cells, offsets=None) -> None:
+        """Put env i on terrain cell (row, column) ``cells[i]``; takes effect at the next reset.
+
+        ``offsets`` shifts each robot inside its cell so envs sharing a cell do not stack.
+        """
         terrain = self.terrain
-        levels = torch.tensor([c[0] for c in cells], device=terrain.terrain_origins.device)
-        types = torch.tensor([c[1] for c in cells], device=terrain.terrain_origins.device)
+        device = terrain.terrain_origins.device
+        levels = torch.tensor([c[0] for c in cells], device=device)
+        types = torch.tensor([c[1] for c in cells], device=device)
         terrain.terrain_levels[:] = levels
         terrain.terrain_types[:] = types
-        terrain.env_origins[:] = terrain.terrain_origins[levels, types]
+        origins = terrain.terrain_origins[levels, types].clone()
+        if offsets is not None:
+            origins[:, :2] += torch.tensor(offsets, device=device, dtype=origins.dtype)
+        terrain.env_origins[:] = origins
 
     def scale_effort_limits(self, factors) -> None:
         """Multiply every actuator's effort limit per env (``factors``: (E,) tensor).
