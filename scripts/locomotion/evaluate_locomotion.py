@@ -40,6 +40,9 @@ def str2bool(v):
 parser = argparse.ArgumentParser(description="Evaluate Meldog locomotion policy.")
 parser.add_argument("--task", type=str, default="Meldog-RL-Locomotion-Rough-Sim-v0", help="Task name.")
 parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint.")
+parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point",
+                    help="Agent config entry point (use rsl_rl_distillation_cfg_entry_point for a "
+                         "student trained by distillation).")
 parser.add_argument("--num_envs", type=int, default=None,
                     help="Number of parallel environments (default: 100, or 192 in benchmark mode: "
                          "8 per terrain cell, which survival needs to be stable).")
@@ -174,14 +177,16 @@ def main():
 
     # Get configs (Meldog registers config classes, Isaac Lab registers "module:Class" strings)
     adapter = make_adapter(args_cli.task)
-    env_cfg, agent_cfg = load_cfgs(args_cli.task)
+    env_cfg, agent_cfg = load_cfgs(args_cli.task, args_cli.agent)
 
     # Obs normalization must match the checkpoint, not the current runner cfg
     # (pre-run-B v1 checkpoints have no normalizer state)
     ckpt = torch.load(args_cli.checkpoint, map_location="cpu", weights_only=False)
     has_norm = any(k.startswith("actor_obs_normalizer.") for k in ckpt["model_state_dict"])
-    agent_cfg.policy.actor_obs_normalization = has_norm
-    agent_cfg.policy.critic_obs_normalization = has_norm
+    for field in ("actor_obs_normalization", "critic_obs_normalization",
+                  "student_obs_normalization", "teacher_obs_normalization"):
+        if hasattr(agent_cfg.policy, field):
+            setattr(agent_cfg.policy, field, has_norm)
     del ckpt
 
     # Configure for evaluation (cameras off unless requested; benchmark command setup)
@@ -193,8 +198,11 @@ def main():
     if args_cli.benchmark:
         for line in adapter.apply_benchmark(env_cfg, args_cli.profile, args_cli.bench_terrain):
             print(f"[BENCH] {line}")
-    FALL_TILT_RAD = 1.0       # trunk tilt that counts as a fall
-    FALL_BASE_FORCE_N = 1.0   # trunk contact force that counts as a fall
+    FALL_TILT_RAD = 1.0            # trunk tilt that counts as a fall
+    FALL_BASE_FORCE_BW = 0.2       # trunk contact force that counts as a fall, in body weights.
+    # A fixed 1 N counted a brush as a fall: policies trained without contact termination walk
+    # with the trunk low and touch obstacles constantly without ever falling (robot_lab ANYmal-D
+    # walks at 0.23 m trunk height and touched something in 191 of 192 envs).
 
     print(f"[INFO] Evaluating: {args_cli.checkpoint}")
     print(f"[INFO] Running {args_cli.num_envs} envs for {args_cli.num_episodes} total episodes.")
@@ -258,7 +266,11 @@ def main():
               "one control-step action delay")
 
     # Load policy
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
+    # Distilled students are StudentTeacher policies and need their own runner class.
+    import rsl_rl.runners as rsl_rl_runners
+
+    runner_cls = getattr(rsl_rl_runners, getattr(agent_cfg, "class_name", "OnPolicyRunner"))
+    runner = runner_cls(env, agent_cfg.to_dict(), log_dir=None, device=device)
     runner.load(args_cli.checkpoint)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
@@ -321,6 +333,11 @@ def main():
     first_survived = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
     first_length = torch.zeros(args_cli.num_envs, dtype=torch.long, device=device)
     base_ids = adapter.base_sensor_ids()
+    try:
+        env_masses = adapter.robot.root_physx_view.get_masses().sum(dim=1).to(device)
+    except Exception:
+        env_masses = adapter.robot.data.default_mass.sum(dim=1).to(device)
+    fall_force_threshold = FALL_BASE_FORCE_BW * env_masses * 9.81
     if not base_ids:
         print(f"[WARN] base body '{adapter.spec.base_body}' not in contact sensor; fall rule uses tilt only.")
     if args_cli.full_episodes:
@@ -368,7 +385,7 @@ def main():
             fallen_now = tilt > FALL_TILT_RAD
             if base_ids:
                 base_force = torch.norm(contact.data.net_forces_w_history[:, :, base_ids], dim=-1)
-                fallen_now |= base_force.amax(dim=(1, 2)) > FALL_BASE_FORCE_N
+                fallen_now |= base_force.amax(dim=(1, 2)) > fall_force_threshold
             first_fell |= fallen_now & ~counted & ~dones.bool()
 
             # --- record post-step state (done steps are marked; the analyzer
@@ -617,6 +634,8 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
         a["bench_terrain"] = args_cli.bench_terrain if args_cli.benchmark else "task"
         a["bench_commands"] = args_cli.bench_commands if args_cli.benchmark else "task"
         a["contact_history_length"] = int(adapter.contact_sensor.cfg.history_length)
+        a["fall_tilt_rad"] = FALL_TILT_RAD
+        a["fall_base_force_bw"] = FALL_BASE_FORCE_BW
         if args_cli.full_episodes:
             f.create_dataset("first_episode_fell", data=first["fell"].cpu().numpy().astype(np.uint8))
             f.create_dataset("first_episode_survived", data=first["survived"].cpu().numpy().astype(np.uint8))

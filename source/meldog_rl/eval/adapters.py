@@ -31,7 +31,7 @@ def is_manager_based(task: str) -> bool:
     return gym.spec(task).entry_point == MANAGER_ENTRY_POINT
 
 
-def load_cfgs(task: str):
+def load_cfgs(task: str, agent_entry_point: str = "rsl_rl_cfg_entry_point"):
     """Instantiate the env and RSL-RL runner configs registered for ``task``.
 
     Handles both registry styles: a config class (Meldog) and a ``"module:Class"``
@@ -40,7 +40,7 @@ def load_cfgs(task: str):
     from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 
     env_cfg = load_cfg_from_registry(task, "env_cfg_entry_point")
-    agent_cfg = load_cfg_from_registry(task, "rsl_rl_cfg_entry_point")
+    agent_cfg = load_cfg_from_registry(task, agent_entry_point)
     return env_cfg, agent_cfg
 
 
