@@ -40,8 +40,10 @@ def make_terrain_cfg(name: str):
                 terrain_type="plane",
                 collision_group=-1,
                 physics_material=sim_utils.RigidBodyMaterialCfg(
-                    friction_combine_mode="multiply", restitution_combine_mode="multiply",
-                    static_friction=1.0, dynamic_friction=1.0,
+                    friction_combine_mode="multiply",
+                    restitution_combine_mode="multiply",
+                    static_friction=1.0,
+                    dynamic_friction=1.0,
                 ),
                 debug_vis=False,
             )
@@ -49,7 +51,7 @@ def make_terrain_cfg(name: str):
     source = {"rough": RoughSimCfg, "obs": FlatObsSimCfg, "rough_obs": RoughObsSimCfg}[name]
     cfg = copy.deepcopy(source().terrain)
     gen = cfg.terrain_generator
-    gen.curriculum = True      # rows are difficulty levels
+    gen.curriculum = True  # rows are difficulty levels
     gen.seed = BENCH_SEED
     gen.use_cache = False
     cfg.max_init_terrain_level = None
@@ -59,11 +61,15 @@ def make_terrain_cfg(name: str):
 def column_kinds(generator_cfg) -> list[str]:
     """Sub-terrain name of each generator column (Isaac Lab's proportion-to-column rule)."""
     names = list(generator_cfg.sub_terrains.keys())
-    proportions = np.array([sub.proportion for sub in generator_cfg.sub_terrains.values()], dtype=float)
+    proportions = np.array(
+        [sub.proportion for sub in generator_cfg.sub_terrains.values()], dtype=float
+    )
     proportions /= proportions.sum()
     cumsum = np.cumsum(proportions)
-    return [names[int(np.min(np.where(col / generator_cfg.num_cols + 0.001 < cumsum)[0]))]
-            for col in range(generator_cfg.num_cols)]
+    return [
+        names[int(np.min(np.where(col / generator_cfg.num_cols + 0.001 < cumsum)[0]))]
+        for col in range(generator_cfg.num_cols)
+    ]
 
 
 def spread_order(count: int) -> list[int]:
@@ -98,8 +104,10 @@ def bench_cells(generator_cfg, num_envs: int) -> list[tuple[int, int, str]]:
     for kind in dict.fromkeys(kinds):
         cols = [c for c, k in enumerate(kinds) if k == kind]
         # Rows change fastest and in spread order, so even a few envs cover easy to hard.
-        per_kind[kind] = [(rows[i % len(rows)], cols[(i // len(rows)) % len(cols)], kind)
-                          for i in range(len(rows) * len(cols))]
+        per_kind[kind] = [
+            (rows[i % len(rows)], cols[(i // len(rows)) % len(cols)], kind)
+            for i in range(len(rows) * len(cols))
+        ]
 
     cells: list[tuple[int, int, str]] = []
     cursors = {kind: 0 for kind in per_kind}
@@ -114,8 +122,10 @@ def bench_cells(generator_cfg, num_envs: int) -> list[tuple[int, int, str]]:
                 cursors[kind] = index + 1
                 progressed = True
         if not progressed:  # more envs than cells: repeat from the start
-            print(f"[WARN] {num_envs} envs but only {len(cells)} terrain cells; cells are reused "
-                  "and those robots spawn on the same spot.")
+            print(
+                f"[WARN] {num_envs} envs but only {len(cells)} terrain cells; cells are reused "
+                "and those robots spawn on the same spot."
+            )
             cells += [cells[i % len(cells)] for i in range(num_envs - len(cells))]
             break
     return cells[:num_envs]

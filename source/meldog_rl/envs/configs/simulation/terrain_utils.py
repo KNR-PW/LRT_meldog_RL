@@ -9,7 +9,11 @@ from scipy.spatial import transform as tf
 
 
 def make_cylinder_high_poly(
-    radius: float, height: float, center: tuple[float, float, float], max_yx_angle: float = 0, degrees: bool = True
+    radius: float,
+    height: float,
+    center: tuple[float, float, float],
+    max_yx_angle: float = 0,
+    degrees: bool = True,
 ) -> trimesh.Trimesh:
     """Generate a high-polygon cylinder mesh with a random orientation.
 
@@ -38,4 +42,6 @@ def make_cylinder_high_poly(
     # -- apply the rotation
     transform[0:3, 0:3] = tf.Rotation.from_euler("zyx", euler_zyx).as_matrix()
     # create the cylinder with higher polygon count (16-24 sections instead of 4-6)
-    return trimesh.creation.cylinder(radius, height, sections=np.random.randint(16, 25), transform=transform)
+    return trimesh.creation.cylinder(
+        radius, height, sections=np.random.randint(16, 25), transform=transform
+    )

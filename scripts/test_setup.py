@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Test meldog_rl setup."""
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "source"))
+
 
 def test_imports():
     """Test basic imports."""
     print("\nTEST 1: Basic imports")
 
     try:
-        from meldog_rl.utils.naming import make_output_name, make_locomotion_log_dir
+        from meldog_rl.utils.naming import make_locomotion_log_dir, make_output_name
+
         print("  meldog_rl.utils.naming imports OK")
 
         name = make_output_name("LM", "rough", "sim")
@@ -23,6 +25,7 @@ def test_imports():
     except Exception as e:
         print(f"  Import error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -35,6 +38,7 @@ def test_configs():
 
     try:
         from meldog_rl.envs.configs.simulation.rough_cfg import RoughSimCfg
+
         cfg = RoughSimCfg()
         print("  RoughSimCfg instantiated")
         print(f"    episode_length_s: {cfg.episode_length_s}")
@@ -42,10 +46,12 @@ def test_configs():
         print(f"    num_envs: {cfg.scene.num_envs}")
 
         from meldog_rl.envs.configs.sim2real.rough_cfg import RoughRealCfg
+
         cfg2 = RoughRealCfg()
         print("  RoughRealCfg instantiated")
 
         from meldog_rl.envs.configs.dataset.rough_cfg import RoughDatasetCfg
+
         cfg3 = RoughDatasetCfg()
         print("  RoughDatasetCfg instantiated")
         print(f"    Cameras enabled: {cfg3.tiled_camera_front is not None}")
@@ -57,6 +63,7 @@ def test_configs():
     except Exception as e:
         print(f"  Config error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -69,6 +76,7 @@ def test_task_registration():
 
     try:
         import gymnasium as gym
+
         from meldog_rl import envs
 
         expected_tasks = [
@@ -98,6 +106,7 @@ def test_task_registration():
     except Exception as e:
         print(f"  Registration error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -141,9 +150,9 @@ def test_usd_path():
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--with-isaaclab", action="store_true",
-                        help="Run full Isaac Lab tests")
+    parser.add_argument("--with-isaaclab", action="store_true", help="Run full Isaac Lab tests")
     args = parser.parse_args()
 
     print("\nMELDOG_RL SETUP TEST")

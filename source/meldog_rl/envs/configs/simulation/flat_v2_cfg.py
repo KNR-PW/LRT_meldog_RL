@@ -29,15 +29,15 @@ class FlatSimV2Cfg(FlatSimCfg):
     # air_time_variance), whose kernels kept finding degenerate optima
     # (diagonal limp, shuffle-in-place).
     foot_slip_reward_scale = -0.5
-    contact_schedule_reward_scale = 2.0        # Run C: match contacts to the clock
-    foot_clearance_reward_scale = 2.0          # terrain-relative, swing-window form
+    contact_schedule_reward_scale = 2.0  # Run C: match contacts to the clock
+    foot_clearance_reward_scale = 2.0  # terrain-relative, swing-window form
     joint_deviation_hip_reward_scale = -0.1
 
     # Run D posture package: stand at the measured nominal height, and tilt WITH the
     # terrain instead of holding gravity-level (the legacy gravity term is switched
     # off; on flat ground the terrain-relative term reduces to it exactly).
     # Run D3: base-height reward OFF, foot clearance up — see rough_v2_cfg.
-    base_height_reward_scale = 0.0             # target = cfg.base_height_target (0.34 m)
+    base_height_reward_scale = 0.0  # target = cfg.base_height_target (0.34 m)
     # Run D3: -8.0 on both terrains — see rough_v2_cfg for why D2's -20.0 was a
     # freeze incentive. (FlatSimCfg's legacy gravity term was -5.0; on flat ground
     # the two are mathematically identical, so -8.0 is slightly stronger than the
@@ -49,21 +49,21 @@ class FlatSimV2Cfg(FlatSimCfg):
     foot_clearance_target = 0.13
 
     # Retuned command / gait shaping
-    feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
-    yaw_rate_reward_scale = 1.5                # was 0.7 (parity with linear tracking)
-    flat_orientation_reward_scale = 0.0        # Run D: replaced by flat_orientation_terrain (was -5.0)
+    feet_air_time_reward_scale = 0.0  # Run A2: was 0.5 (subsidized diagonal-float exploit)
+    yaw_rate_reward_scale = 1.5  # was 0.7 (parity with linear tracking)
+    flat_orientation_reward_scale = 0.0  # Run D: replaced by flat_orientation_terrain (was -5.0)
 
     # Behavior flags
-    air_time_gate_full_cmd = True              # gate air-time on the full 3-dim command
-    pure_rotation_fraction = 0.2               # 20% of resamples are turn-in-place
-    gait_clock = True                          # Run C: phase clock + [sin, cos] obs
-    observation_space = 237                    # 235 + 2 clock observations
+    air_time_gate_full_cmd = True  # gate air-time on the full 3-dim command
+    pure_rotation_fraction = 0.2  # 20% of resamples are turn-in-place
+    gait_clock = True  # Run C: phase clock + [sin, cos] obs
+    observation_space = 237  # 235 + 2 clock observations
 
     # Run B robustness package
-    reset_randomization = True                 # yaw/joint/velocity noise at reset (inline)
-    obs_noise = True                           # additive uniform obs noise (Go2 values)
-    events: V2EventCfg = V2EventCfg()          # base randomization + periodic pushes
-    action_scale = 0.25                        # was 0.3
+    reset_randomization = True  # yaw/joint/velocity noise at reset (inline)
+    obs_noise = True  # additive uniform obs noise (Go2 values)
+    events: V2EventCfg = V2EventCfg()  # base randomization + periodic pushes
+    action_scale = 0.25  # was 0.3
 
     def __post_init__(self):
         # Post init of parent

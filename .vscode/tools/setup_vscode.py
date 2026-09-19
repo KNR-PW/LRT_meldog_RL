@@ -29,7 +29,9 @@ try:
 except ModuleNotFoundError or ImportError:
     # Create a parser to get the isaac-sim path
     parser = argparse.ArgumentParser(description="Setup the VSCode settings for the project.")
-    parser.add_argument("--isaac_path", type=str, help="The absolute path to the Isaac Sim installation.")
+    parser.add_argument(
+        "--isaac_path", type=str, help="The absolute path to the Isaac Sim installation."
+    )
     args = parser.parse_args()
 
     # parse the isaac-sim directory
@@ -41,7 +43,9 @@ except ModuleNotFoundError or ImportError:
             " installation."
         )
 except EOFError:
-    print("Unable to trigger EULA acceptance. This is likely due to the script being run in a non-interactive shell.")
+    print(
+        "Unable to trigger EULA acceptance. This is likely due to the script being run in a non-interactive shell."
+    )
     print("Please run the script in an interactive shell to accept the EULA.")
     print("Skipping the setup of the VSCode settings...")
     sys.exit(0)
@@ -86,7 +90,9 @@ def overwrite_python_analysis_extra_paths(isaaclab_settings: str) -> str:
         # extract the path names
         # search for the python.analysis.extraPaths section and extract the contents
         settings = re.search(
-            r"\"python.analysis.extraPaths\": \[.*?\]", vscode_settings, flags=re.MULTILINE | re.DOTALL
+            r"\"python.analysis.extraPaths\": \[.*?\]",
+            vscode_settings,
+            flags=re.MULTILINE | re.DOTALL,
         )
         settings = settings.group(0)
         settings = settings.split('"python.analysis.extraPaths": [')[-1]
@@ -99,7 +105,9 @@ def overwrite_python_analysis_extra_paths(isaaclab_settings: str) -> str:
 
         # change the path names to be relative to the Isaac Lab directory
         rel_path = os.path.relpath(ISAACSIM_DIR, PROJECT_DIR)
-        path_names = ['"${workspaceFolder}/' + rel_path + "/" + path_name + '"' for path_name in path_names]
+        path_names = [
+            '"${workspaceFolder}/' + rel_path + "/" + path_name + '"' for path_name in path_names
+        ]
     else:
         path_names = []
         print(
@@ -151,9 +159,13 @@ def overwrite_default_python_interpreter(isaaclab_settings: str) -> str:
     if f"kit{os.sep}python{os.sep}bin{os.sep}python" in python_exe:
         # Check if the OS is Windows or Linux to use appropriate shell file
         if platform.system() == "Windows":
-            python_exe = python_exe.replace(f"kit{os.sep}python{os.sep}bin{os.sep}python3", "python.bat")
+            python_exe = python_exe.replace(
+                f"kit{os.sep}python{os.sep}bin{os.sep}python3", "python.bat"
+            )
         else:
-            python_exe = python_exe.replace(f"kit{os.sep}python{os.sep}bin{os.sep}python3", "python.sh")
+            python_exe = python_exe.replace(
+                f"kit{os.sep}python{os.sep}bin{os.sep}python3", "python.sh"
+            )
 
     # replace the default python interpreter in the Isaac Lab settings file with the path to the
     # python interpreter in the Isaac Lab directory
@@ -169,7 +181,9 @@ def overwrite_default_python_interpreter(isaaclab_settings: str) -> str:
 
 def main():
     # Isaac Lab template settings
-    isaaclab_vscode_template_filename = os.path.join(PROJECT_DIR, ".vscode", "tools", "settings.template.json")
+    isaaclab_vscode_template_filename = os.path.join(
+        PROJECT_DIR, ".vscode", "tools", "settings.template.json"
+    )
     # make sure the Isaac Lab template settings file exists
     if not os.path.exists(isaaclab_vscode_template_filename):
         raise FileNotFoundError(
@@ -201,7 +215,9 @@ def main():
 
     # copy the launch.json file if it doesn't exist
     isaaclab_vscode_launch_filename = os.path.join(PROJECT_DIR, ".vscode", "launch.json")
-    isaaclab_vscode_template_launch_filename = os.path.join(PROJECT_DIR, ".vscode", "tools", "launch.template.json")
+    isaaclab_vscode_template_launch_filename = os.path.join(
+        PROJECT_DIR, ".vscode", "tools", "launch.template.json"
+    )
     if not os.path.exists(isaaclab_vscode_launch_filename):
         # read template launch settings
         with open(isaaclab_vscode_template_launch_filename) as f:

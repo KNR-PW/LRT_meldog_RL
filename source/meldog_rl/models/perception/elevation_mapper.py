@@ -206,12 +206,18 @@ class ElevationMapper:
         )  # (B, N, N, 2), gx=cols, gy=rows
 
         num = F.grid_sample(
-            self.world_mean * self.world_valid, grid,
-            mode="bilinear", padding_mode="zeros", align_corners=True,
+            self.world_mean * self.world_valid,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
         )
         den = F.grid_sample(
-            self.world_valid, grid,
-            mode="bilinear", padding_mode="zeros", align_corners=True,
+            self.world_valid,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
         )
         valid_out = (den > 0.25).float()
         heights = num / den.clamp(min=1e-6) - robot_pos[:, 2].view(B, 1, 1, 1)

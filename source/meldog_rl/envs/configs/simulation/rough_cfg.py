@@ -8,7 +8,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 from isaaclab.utils import configclass
 
-from ..base_cfg import BaseMeldogEnvCfg, BaseEventCfg
+from ..base_cfg import BaseEventCfg, BaseMeldogEnvCfg
 
 
 @configclass
@@ -30,7 +30,7 @@ class RoughSimCfg(BaseMeldogEnvCfg):
     - Box heights: 0.025m (easy) → 0.1m (hard)
     - Random roughness: 0.01m noise (easy) → 0.06m noise (hard)
     """
-    
+
     # Rough procedural terrain
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
@@ -51,10 +51,10 @@ class RoughSimCfg(BaseMeldogEnvCfg):
         ),
         debug_vis=False,
     )
-    
+
     # Base domain randomization (minimal)
     events: BaseEventCfg = BaseEventCfg()
-    
+
     # Cameras disabled for fast training
     tiled_camera_front = None
     tiled_camera_rear = None
@@ -71,30 +71,35 @@ class RoughSimCfg(BaseMeldogEnvCfg):
             self.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
             self.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
             self.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
-            self.terrain.terrain_generator.sub_terrains["pyramid_stairs"].step_height_range = (0.05, 0.1)
-            self.terrain.terrain_generator.sub_terrains["pyramid_stairs_inv"].step_height_range = (0.05, 0.1)
+            self.terrain.terrain_generator.sub_terrains["pyramid_stairs"].step_height_range = (
+                0.05,
+                0.1,
+            )
+            self.terrain.terrain_generator.sub_terrains["pyramid_stairs_inv"].step_height_range = (
+                0.05,
+                0.1,
+            )
 
             # Enable curriculum learning (progressively increase difficulty)
             self.terrain.terrain_generator.curriculum = self.enable_curriculum
-
 
     # Override base config
     feet_air_time = 0.5
     action_scale = 0.3
 
-    lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
-    yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
-    z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
-    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
-    
-    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
-    joint_accel_reward_scale = -5.0e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
-    action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
-    
-    feet_air_time_reward_scale = 2.0        # ANYmal: 0.5,   Unitree: 0.01
-    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None 
-    
-    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
+    lin_vel_reward_scale = 1.5  # ANYmal: 1.0,   Unitree: 1.5
+    yaw_rate_reward_scale = 0.7  # ANYmal: 0.5,   Unitree: 0.75
+    z_vel_reward_scale = -2.0  # ANYmal: -2.0,  Unitree: -2.0
+    ang_vel_reward_scale = -0.05  # ANYmal: -0.05, Unitree: -0.05
+
+    joint_torque_reward_scale = -1.0e-4  # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -5.0e-7  # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    action_rate_reward_scale = -0.01  # ANYmal: -0.01, Unitree: -0.01
+
+    feet_air_time_reward_scale = 2.0  # ANYmal: 0.5,   Unitree: 0.01
+    undesired_contact_reward_scale = -1.0  # ANYmal: -1.0,  Unitree: None
+
+    flat_orientation_reward_scale = -0.0  # ANYmal: 0.0,   Unitree: 0.0
 
 
 @configclass
@@ -127,5 +132,3 @@ class RoughSimCfg_PLAY(RoughSimCfg):
 
         # Disable randomization for play
         self.events = None  # No domain randomization during play
-
-

@@ -25,14 +25,13 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import h5py
-
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-
 
 FOOT_LABELS = ["FL", "FR", "RL", "RR"]
 PHASE_LABELS = ["FR", "RL", "RR"]  # offsets relative to FL
@@ -191,7 +190,9 @@ def compute_flags(meta, loco):
             put("posture.pitch_terrain_rel_std", _flag_lt(po["pitch_terrain_rel_std"], 0.05, 0.10))
     else:
         put("posture.roll_terrain_rel_mean", _flag_abs_lt(po["roll_terrain_rel_mean"], 0.03, 0.07))
-        put("posture.pitch_terrain_rel_mean", _flag_abs_lt(po["pitch_terrain_rel_mean"], 0.03, 0.07))
+        put(
+            "posture.pitch_terrain_rel_mean", _flag_abs_lt(po["pitch_terrain_rel_mean"], 0.03, 0.07)
+        )
         put("posture.roll_terrain_rel_std", _flag_lt(po["roll_terrain_rel_std"], 0.05, 0.10))
         put("posture.pitch_terrain_rel_std", _flag_lt(po["pitch_terrain_rel_std"], 0.05, 0.10))
 
@@ -258,7 +259,7 @@ def _canonical_foot_from_joint(name: str) -> str:
     """
     base = name.split("_")[0]
     side = base[0].upper()  # L / R
-    end = base[1].upper()   # F / R
+    end = base[1].upper()  # F / R
     fb = "F" if end == "F" else "R"
     return fb + side
 
@@ -294,9 +295,11 @@ def resolve_k_idx(attrs, data=None):
     if idx is None:
         # Meldog's own layout. For any other robot these indices point at arbitrary joints, so the
         # knee metrics below would be quietly meaningless: say so instead of pretending.
-        print("[WARN] no knee joints matched the robot's joint names; falling back to Meldog's "
-              f"indices {list(K_JOINT_IDX_FALLBACK)}. Knee metrics (swing.knee_excursion) are only "
-              "meaningful if this robot shares Meldog's joint order.")
+        print(
+            "[WARN] no knee joints matched the robot's joint names; falling back to Meldog's "
+            f"indices {list(K_JOINT_IDX_FALLBACK)}. Knee metrics (swing.knee_excursion) are only "
+            "meaningful if this robot shares Meldog's joint order."
+        )
         return list(K_JOINT_IDX_FALLBACK)
     return idx
 
@@ -321,7 +324,7 @@ def detect_period_steps(sig: np.ndarray, dt: float, return_peak: bool = False):
     denom = np.sum(x * x)
     if denom <= 1e-9:
         return None
-    ac = np.correlate(x, x, mode="full")[len(x) - 1:]
+    ac = np.correlate(x, x, mode="full")[len(x) - 1 :]
     ac = ac / ac[0]
     lo = max(1, int(round(MIN_PERIOD_S / dt)))
     hi = min(len(ac) - 2, int(round(MAX_PERIOD_S / dt)))
@@ -369,8 +372,10 @@ def phase_offset_xcorr(ref: np.ndarray, other: np.ndarray, period_steps: int):
 
 def aggregate(values):
     """{'mean','std'} over a list of scalars, skipping None/NaN. None if empty."""
-    arr = np.array([v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))],
-                   dtype=float)
+    arr = np.array(
+        [v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))],
+        dtype=float,
+    )
     if arr.size == 0:
         return None
     return {"mean": float(np.mean(arr)), "std": float(np.std(arr))}
@@ -401,8 +406,10 @@ def aggregate_array(values, length):
     if not rows:
         return None
     mat = np.vstack(rows)
-    return {"mean": [float(x) for x in np.nanmean(mat, axis=0)],
-            "std": [float(x) for x in np.nanstd(mat, axis=0)]}
+    return {
+        "mean": [float(x) for x in np.nanmean(mat, axis=0)],
+        "std": [float(x) for x in np.nanstd(mat, axis=0)],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -483,22 +490,25 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     e, s, end = seg["env"], seg["start"], seg["end"]
     m = {}
 
-    linb = data["root_lin_vel_b"][s:end, e]      # (L,3)
-    angb = data["root_ang_vel_b"][s:end, e]      # (L,3)
-    cmd = data["commands"][s:end, e]             # (L,3)
-    quat = data["root_quat_w"][s:end, e]         # (L,4)
-    pos = data["root_pos_w"][s:end, e]           # (L,3)
-    jpos = data["joint_pos"][s:end, e]           # (L,12)
-    jvel = data["joint_vel"][s:end, e]           # (L,12)
-    torque = data["applied_torque"][s:end, e]    # (L,12)
-    act = data["actions"][s:end, e]              # (L,12)
-    fforce = data["foot_forces_w"][s:end, e]     # (L,4,3)
-    fpos = data["foot_pos_w"][s:end, e]          # (L,4,3)
-    fvel = data["foot_vel_w"][s:end, e]          # (L,4,3)
+    linb = data["root_lin_vel_b"][s:end, e]  # (L,3)
+    angb = data["root_ang_vel_b"][s:end, e]  # (L,3)
+    cmd = data["commands"][s:end, e]  # (L,3)
+    quat = data["root_quat_w"][s:end, e]  # (L,4)
+    pos = data["root_pos_w"][s:end, e]  # (L,3)
+    jpos = data["joint_pos"][s:end, e]  # (L,12)
+    jvel = data["joint_vel"][s:end, e]  # (L,12)
+    torque = data["applied_torque"][s:end, e]  # (L,12)
+    act = data["actions"][s:end, e]  # (L,12)
+    fforce = data["foot_forces_w"][s:end, e]  # (L,4,3)
+    fpos = data["foot_pos_w"][s:end, e]  # (L,4,3)
+    fvel = data["foot_vel_w"][s:end, e]  # (L,4,3)
 
     thr = float(data["_attrs"].get("contact_force_threshold", 1.0))
-    mass = float(data["robot_mass_per_env"][e]) if "robot_mass_per_env" in data \
+    mass = (
+        float(data["robot_mass_per_env"][e])
+        if "robot_mass_per_env" in data
         else float(data["_attrs"]["robot_mass"])
+    )
 
     # --- tracking ---
     m["lin_err"] = float(np.mean(np.abs(cmd[:, :2] - linb[:, :2])))
@@ -514,8 +524,8 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     m["pitch_std"] = float(np.std(pitch))
 
     # --- gait ---
-    fmag = np.linalg.norm(fforce, axis=-1)       # (L,4)
-    contact = fmag > thr                         # (L,4) bool
+    fmag = np.linalg.norm(fforce, axis=-1)  # (L,4)
+    contact = fmag > thr  # (L,4) bool
     m["duty_factor"] = np.mean(contact, axis=0)  # (4,)
     m["duty_factor_spread"] = float(np.max(m["duty_factor"]) - np.min(m["duty_factor"]))
 
@@ -527,8 +537,9 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
         # express the result relative to FL so the reported labels stay "FR, RL, RR vs FL". Using
         # FL directly gives degraded offsets exactly when FL is the foot with erratic contact.
         ref_signal = contact[:, ref_foot].astype(float)
-        offs_ref = [phase_offset_xcorr(ref_signal, contact[:, fi].astype(float), period)
-                    for fi in range(4)]
+        offs_ref = [
+            phase_offset_xcorr(ref_signal, contact[:, fi].astype(float), period) for fi in range(4)
+        ]
         if any(o is None for o in offs_ref):
             m["phase_offset"] = None
         else:
@@ -549,11 +560,11 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     interior = np.zeros_like(contact)  # (L,4) bool: contact minus transition frames
     phase_slips, phase_slips_raw = [], []
     for fi in range(4):
-        for (rs, re) in contact_runs(contact[:, fi]):
+        for rs, re in contact_runs(contact[:, fi]):
             phase_slips_raw.append(float(np.sum(hspeed[rs:re, fi]) * dt))
             if re - rs > 2:  # need >=1 interior sample after dropping touchdown+liftoff
-                interior[rs + 1:re - 1, fi] = True
-                phase_slips.append(float(np.sum(hspeed[rs + 1:re - 1, fi]) * dt))
+                interior[rs + 1 : re - 1, fi] = True
+                phase_slips.append(float(np.sum(hspeed[rs + 1 : re - 1, fi]) * dt))
     m["slip_mean_vel"] = float(np.mean(hspeed[interior])) if interior.any() else None
     m["slip_dist_per_step"] = float(np.mean(phase_slips)) if phase_slips else None
     m["slip_dist_per_step_raw"] = float(np.mean(phase_slips_raw)) if phase_slips_raw else None
@@ -567,7 +578,7 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     for fi in range(4):
         runs = contact_runs(contact[:, fi])
         onsets = set(contact_onsets(contact[:, fi]).tolist())
-        for (rs, re) in runs:
+        for rs, re in runs:
             if rs in onsets:  # genuine touchdown (not contact at t=0)
                 peak_bw.append(float(np.max(fmag_peak[rs:re, fi]) / (mass * GRAVITY)))
                 td_vel.append(float(abs(fvel[rs, fi, 2])))
@@ -587,7 +598,7 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     swing_knee = np.full(4, np.nan)
     for fi in range(4):
         apex_vals, knee_vals = [], []
-        for (rs, re) in contact_runs(~contact[:, fi]):
+        for rs, re in contact_runs(~contact[:, fi]):
             if rs == 0 or re - rs < 2:  # skip pre-existing air phase / too-short swings
                 continue
             apex_vals.append(float(np.max(foot_z[rs:re, fi]) - foot_z[rs, fi]))
@@ -657,7 +668,9 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
         return float((a - b) / (a + b)) if (a + b) > 1e-9 else None
 
     if leg_idx is not None:
-        per_leg_torque = np.array([np.mean(np.abs(torque[:, list(j)])) for j in np.asarray(leg_idx)])
+        per_leg_torque = np.array(
+            [np.mean(np.abs(torque[:, list(j)])) for j in np.asarray(leg_idx)]
+        )
         per_leg_sat = np.array([100.0 * np.mean(sat[:, list(j)]) for j in np.asarray(leg_idx)])
         m["torque_per_leg"] = per_leg_torque
         m["sat_per_leg"] = per_leg_sat
@@ -670,7 +683,7 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
         m["asym_apex_lr"] = _side(swing_apex, left) - _side(swing_apex, right)
 
     # --- energy / cost of transport ---
-    power = np.sum(np.abs(torque * jvel), axis=1)       # (L,)
+    power = np.sum(np.abs(torque * jvel), axis=1)  # (L,)
     energy = float(np.sum(power) * dt)
     distance = float(np.sum(np.linalg.norm(np.diff(pos[:, :2], axis=0), axis=1)))
     m["cost_of_transport"] = energy / (mass * GRAVITY * distance) if distance > 0.05 else None
@@ -693,8 +706,10 @@ def survival_by_terrain(data):
     out = {}
     for kind in dict.fromkeys(kinds):
         mask_kind = np.array([k == kind for k in kinds])
-        out[kind] = {int(r): float(survived[mask_kind & (rows == r)].mean())
-                     for r in sorted(set(rows[mask_kind].tolist()))}
+        out[kind] = {
+            int(r): float(survived[mask_kind & (rows == r)].mean())
+            for r in sorted(set(rows[mask_kind].tolist()))
+        }
     return out
 
 
@@ -709,10 +724,16 @@ def _most_common_foot(values):
 def build_metrics(data, segments):
     dt = float(data["_attrs"]["step_dt"])
     # Per-joint limits when recorded (inf = no fixed limit, never counted as saturated).
-    effort_limit = (np.asarray(data["joint_effort_limits"], dtype=float) if "joint_effort_limits" in data
-                    else float(data["_attrs"]["joint_effort_limit"]))
-    vel_limit = (np.asarray(data["joint_velocity_limits"], dtype=float) if "joint_velocity_limits" in data
-                 else float(data["_attrs"]["joint_velocity_limit"]))
+    effort_limit = (
+        np.asarray(data["joint_effort_limits"], dtype=float)
+        if "joint_effort_limits" in data
+        else float(data["_attrs"]["joint_effort_limit"])
+    )
+    vel_limit = (
+        np.asarray(data["joint_velocity_limits"], dtype=float)
+        if "joint_velocity_limits" in data
+        else float(data["_attrs"]["joint_velocity_limit"])
+    )
 
     k_idx = resolve_k_idx(data["_attrs"], data)
     n_joints = int(data["joint_pos"].shape[-1])
@@ -793,7 +814,9 @@ def build_metrics(data, segments):
             "vel_sat_pct": aggregate(col("vel_sat_pct")),
             "joint_names": _decode_str_list(data["_attrs"].get("joint_names")),
             "torque_sat_pct_per_joint": aggregate_array(col("torque_sat_pct_per_joint"), n_joints),
-            "torque_mean_abs_per_joint": aggregate_array(col("torque_mean_abs_per_joint"), n_joints),
+            "torque_mean_abs_per_joint": aggregate_array(
+                col("torque_mean_abs_per_joint"), n_joints
+            ),
         },
         # Left/right and front/rear asymmetry: a policy can track well and still load one side
         # much harder than the other, which no other metric shows.
@@ -857,15 +880,16 @@ def plot_gait_diagram(data, seg, dt, out_path, window_s=10.0):
     e, s, end = seg["env"], seg["start"], seg["end"]
     thr = float(data["_attrs"].get("contact_force_threshold", 1.0))
     n = min(end - s, int(round(window_s / dt)))
-    fforce = data["foot_forces_w"][s:s + n, e]
+    fforce = data["foot_forces_w"][s : s + n, e]
     contact = np.linalg.norm(fforce, axis=-1) > thr  # (n,4)
 
     fig, ax = plt.subplots(figsize=(11, 3.2))
     colors = ["#1b7837", "#762a83", "#2166ac", "#b2182b"]
     for i, label in enumerate(FOOT_LABELS):
-        for (rs, re) in contact_runs(contact[:, i]):
-            ax.broken_barh([(rs * dt, (re - rs) * dt)], (i - 0.4, 0.8),
-                           facecolors=colors[i], edgecolor="none")
+        for rs, re in contact_runs(contact[:, i]):
+            ax.broken_barh(
+                [(rs * dt, (re - rs) * dt)], (i - 0.4, 0.8), facecolors=colors[i], edgecolor="none"
+            )
     ax.set_yticks(range(4))
     ax.set_yticklabels(FOOT_LABELS)
     ax.set_ylim(-0.6, 3.6)
@@ -874,8 +898,9 @@ def plot_gait_diagram(data, seg, dt, out_path, window_s=10.0):
     ax.set_ylabel("Foot")
     ax.set_xlim(0, n * dt)
     ax.set_title(f"Gait diagram  (env {e}, contact = |F| > {thr:g} N)")
-    ax.legend(handles=[Patch(facecolor="0.3", label="stance (in contact)")],
-              loc="upper right", fontsize=8)
+    ax.legend(
+        handles=[Patch(facecolor="0.3", label="stance (in contact)")], loc="upper right", fontsize=8
+    )
     ax.grid(True, axis="x", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
@@ -916,10 +941,12 @@ def plot_attitude(data, seg, dt, out_path):
     fig, ax = plt.subplots(figsize=(11, 3.6))
     ax.plot(t, roll, color="#762a83", lw=1.2, label="roll")
     ax.plot(t, pitch, color="#1b7837", lw=1.2, label="pitch")
-    ax.axhline(np.mean(roll), color="#762a83", ls=":", lw=1.0,
-               label=f"roll mean {np.mean(roll):+.3f}")
-    ax.axhline(np.mean(pitch), color="#1b7837", ls=":", lw=1.0,
-               label=f"pitch mean {np.mean(pitch):+.3f}")
+    ax.axhline(
+        np.mean(roll), color="#762a83", ls=":", lw=1.0, label=f"roll mean {np.mean(roll):+.3f}"
+    )
+    ax.axhline(
+        np.mean(pitch), color="#1b7837", ls=":", lw=1.0, label=f"pitch mean {np.mean(pitch):+.3f}"
+    )
     ax.axhline(0.0, color="0.6", lw=0.8)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Angle (rad)")
@@ -980,12 +1007,12 @@ def plot_swing(data, seg, dt, out_path, k_idx):
     thr = float(data["_attrs"].get("contact_force_threshold", 1.0))
     contact = np.linalg.norm(data["foot_forces_w"][s:end, e], axis=-1) > thr  # (L,4)
     foot_z = data["foot_pos_w"][s:end, e, :, 2]  # (L,4)
-    jpos = data["joint_pos"][s:end, e]           # (L,12)
+    jpos = data["joint_pos"][s:end, e]  # (L,12)
 
     apex_means, knee_means = [], []
     for fi in range(4):
         apex_vals, knee_vals = [], []
-        for (rs, re) in contact_runs(~contact[:, fi]):
+        for rs, re in contact_runs(~contact[:, fi]):
             if rs == 0 or re - rs < 2:
                 continue
             apex_vals.append(float(np.max(foot_z[rs:re, fi]) - foot_z[rs, fi]))
@@ -1025,8 +1052,7 @@ def plot_posture(data, seg, dt, out_path):
 
     fig, axes = plt.subplots(2, 1, figsize=(11, 6), sharex=True)
     axes[0].plot(t, bh, color="#2166ac", lw=1.2, label="trunk height above terrain")
-    axes[0].axhline(np.mean(bh), color="#2166ac", ls=":", lw=1.0,
-                    label=f"mean {np.mean(bh):.3f} m")
+    axes[0].axhline(np.mean(bh), color="#2166ac", ls=":", lw=1.0, label=f"mean {np.mean(bh):.3f} m")
     axes[0].set_ylabel("Height (m)")
     axes[0].set_title(f"Posture  (env {e}; terrain-relative, trend metrics)")
     axes[0].grid(True, alpha=0.3)
@@ -1034,15 +1060,26 @@ def plot_posture(data, seg, dt, out_path):
 
     axes[1].plot(t, roll_rel, color="#762a83", lw=1.2, label="roll vs terrain")
     axes[1].plot(t, pitch_rel, color="#1b7837", lw=1.2, label="pitch vs terrain")
-    axes[1].axhline(np.mean(roll_rel), color="#762a83", ls=":", lw=1.0,
-                    label=f"roll mean {np.mean(roll_rel):+.3f}")
-    axes[1].axhline(np.mean(pitch_rel), color="#1b7837", ls=":", lw=1.0,
-                    label=f"pitch mean {np.mean(pitch_rel):+.3f}")
+    axes[1].axhline(
+        np.mean(roll_rel),
+        color="#762a83",
+        ls=":",
+        lw=1.0,
+        label=f"roll mean {np.mean(roll_rel):+.3f}",
+    )
+    axes[1].axhline(
+        np.mean(pitch_rel),
+        color="#1b7837",
+        ls=":",
+        lw=1.0,
+        label=f"pitch mean {np.mean(pitch_rel):+.3f}",
+    )
     axes[1].axhline(0.0, color="0.6", lw=0.8)
     axes[1].set_xlabel("Time (s)")
     axes[1].set_ylabel("Angle (rad)")
-    axes[1].set_title("Attitude relative to the fitted terrain plane "
-                      "(0 = trunk parallel to local ground)")
+    axes[1].set_title(
+        "Attitude relative to the fitted terrain plane " "(0 = trunk parallel to local ground)"
+    )
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(loc="upper right", fontsize=8, ncol=2)
     fig.tight_layout()
@@ -1094,86 +1131,164 @@ def write_report(metrics, out_path):
     lines.append("# Locomotion evaluation report\n")
     lines.append(f"- **task**: {meta['task']}")
     lines.append(f"- **checkpoint**: {meta['checkpoint']}")
-    lines.append(f"- **date**: {meta['date']}  ·  **git**: {meta['git_commit']}  ·  "
-                 f"**seed**: {meta['seed']}  ·  **benchmark_mode**: {meta['benchmark_mode']}")
-    lines.append(f"- **envs x steps**: {meta['num_envs']} x {meta['num_steps']}  ·  "
-                 f"**usable episodes**: {L['num_usable_episodes']}  ·  "
-                 f"**robot mass**: {meta['robot_mass']:.2f} kg"
-                 + (f"  ·  **robot**: {meta['robot_name']}, leg length {meta['robot_leg_length']:.3f} m"
-                    if meta.get("robot_leg_length") else "") + "\n")
+    lines.append(
+        f"- **date**: {meta['date']}  ·  **git**: {meta['git_commit']}  ·  "
+        f"**seed**: {meta['seed']}  ·  **benchmark_mode**: {meta['benchmark_mode']}"
+    )
+    lines.append(
+        f"- **envs x steps**: {meta['num_envs']} x {meta['num_steps']}  ·  "
+        f"**usable episodes**: {L['num_usable_episodes']}  ·  "
+        f"**robot mass**: {meta['robot_mass']:.2f} kg"
+        + (
+            f"  ·  **robot**: {meta['robot_name']}, leg length {meta['robot_leg_length']:.3f} m"
+            if meta.get("robot_leg_length")
+            else ""
+        )
+        + "\n"
+    )
 
     sr = L["survival_rate"]
     lines.append("## Survival")
     lines.append(
         f"- survival_rate: {sr*100:.1f}%  ({L['n_survived']}/{L['n_terminated']} "
         f"episodes) {fl('survival_rate')}\n"
-        if sr is not None else "- survival_rate: n/a\n")
+        if sr is not None
+        else "- survival_rate: n/a\n"
+    )
     if L.get("survival_by_terrain"):
         rows = sorted({r for d in L["survival_by_terrain"].values() for r in d})
         lines.append("\n| terrain kind | " + " | ".join(f"row {r}" for r in rows) + " |")
         lines.append("|---|" + "---|" * len(rows))
         for kind, d in L["survival_by_terrain"].items():
-            lines.append(f"| {kind} | " + " | ".join(f"{d[r]:.2f}" if r in d else "–" for r in rows) + " |")
+            lines.append(
+                f"| {kind} | " + " | ".join(f"{d[r]:.2f}" if r in d else "–" for r in rows) + " |"
+            )
         lines.append("")
 
     lines.append("## Metrics (mean +/- std across episodes)\n")
-    lines.append("Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
-                 "(advisory — attitude/impact bands assume the flat/benchmark scenario). "
-                 "Trend metrics (smooth.*, swing.*, posture.*) and un-banded rows (marked "
-                 "`trend`) carry no flag.\n")
+    lines.append(
+        "Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate "
+        "(advisory — attitude/impact bands assume the flat/benchmark scenario). "
+        "Trend metrics (smooth.*, swing.*, posture.*) and un-banded rows (marked "
+        "`trend`) carry no flag.\n"
+    )
     lines.append("| metric | value | flag |")
     lines.append("|---|---|---|")
-    lines.append(f"| tracking.lin_err (vx,vy) | {fmt(L['tracking']['lin_err'], unit=' m/s')} | {fl('tracking.lin_err')} |")
+    lines.append(
+        f"| tracking.lin_err (vx,vy) | {fmt(L['tracking']['lin_err'], unit=' m/s')} | {fl('tracking.lin_err')} |"
+    )
     lines.append(f"| tracking.lin_err_vx | {fmt(L['tracking']['lin_err_vx'], unit=' m/s')} |  |")
     lines.append(f"| tracking.lin_err_vy | {fmt(L['tracking']['lin_err_vy'], unit=' m/s')} |  |")
-    lines.append(f"| tracking.ang_err (wz) | {fmt(L['tracking']['ang_err'], unit=' rad/s')} | {fl('tracking.ang_err')} |")
-    lines.append(f"| attitude.roll_mean | {fmt(L['attitude']['roll_mean'], unit=' rad')} | {fl('attitude.roll_mean')} |")
-    lines.append(f"| attitude.roll_std | {fmt(L['attitude']['roll_std'], unit=' rad')} | {fl('attitude.roll_std')} |")
-    lines.append(f"| attitude.pitch_mean | {fmt(L['attitude']['pitch_mean'], unit=' rad')} | {fl('attitude.pitch_mean')} |")
-    lines.append(f"| attitude.pitch_std | {fmt(L['attitude']['pitch_std'], unit=' rad')} | {fl('attitude.pitch_std')} |")
-    lines.append(f"| gait.duty_factor [FL,FR,RL,RR] | {fmt_array(L['gait']['duty_factor'])} | {fl('gait.duty_factor')} |")
-    lines.append(f"| gait.duty_factor_spread | {fmt(L['gait']['duty_factor_spread'])} | {fl('gait.duty_factor_spread')} |")
-    lines.append(f"| gait.phase_offset [FR,RL,RR] | {fmt_array(L['gait']['phase_offset'], unit=' cyc')} | {fl('gait.phase_offset')} |")
-    lines.append(f"| gait.stride_freq | {fmt(L['gait']['stride_freq'], unit=' Hz')} | {fl('gait.stride_freq')} |")
+    lines.append(
+        f"| tracking.ang_err (wz) | {fmt(L['tracking']['ang_err'], unit=' rad/s')} | {fl('tracking.ang_err')} |"
+    )
+    lines.append(
+        f"| attitude.roll_mean | {fmt(L['attitude']['roll_mean'], unit=' rad')} | {fl('attitude.roll_mean')} |"
+    )
+    lines.append(
+        f"| attitude.roll_std | {fmt(L['attitude']['roll_std'], unit=' rad')} | {fl('attitude.roll_std')} |"
+    )
+    lines.append(
+        f"| attitude.pitch_mean | {fmt(L['attitude']['pitch_mean'], unit=' rad')} | {fl('attitude.pitch_mean')} |"
+    )
+    lines.append(
+        f"| attitude.pitch_std | {fmt(L['attitude']['pitch_std'], unit=' rad')} | {fl('attitude.pitch_std')} |"
+    )
+    lines.append(
+        f"| gait.duty_factor [FL,FR,RL,RR] | {fmt_array(L['gait']['duty_factor'])} | {fl('gait.duty_factor')} |"
+    )
+    lines.append(
+        f"| gait.duty_factor_spread | {fmt(L['gait']['duty_factor_spread'])} | {fl('gait.duty_factor_spread')} |"
+    )
+    lines.append(
+        f"| gait.phase_offset [FR,RL,RR] | {fmt_array(L['gait']['phase_offset'], unit=' cyc')} | {fl('gait.phase_offset')} |"
+    )
+    lines.append(
+        f"| gait.stride_freq | {fmt(L['gait']['stride_freq'], unit=' Hz')} | {fl('gait.stride_freq')} |"
+    )
     lines.append(f"| gait.cycle_detected_frac | {L['gait']['cycle_detected_frac']} |  |")
-    lines.append(f"| slip.mean_vel (transition-filtered) | {fmt(L['slip']['mean_vel'], unit=' m/s')} | {fl('slip.mean_vel')} |")
-    lines.append(f"| slip.mean_vel_raw (unfiltered) | {fmt(L['slip']['mean_vel_raw'], unit=' m/s')} | trend |")
+    lines.append(
+        f"| slip.mean_vel (transition-filtered) | {fmt(L['slip']['mean_vel'], unit=' m/s')} | {fl('slip.mean_vel')} |"
+    )
+    lines.append(
+        f"| slip.mean_vel_raw (unfiltered) | {fmt(L['slip']['mean_vel_raw'], unit=' m/s')} | trend |"
+    )
     lines.append(f"| slip.dist_per_step | {fmt(L['slip']['dist_per_step'], unit=' m')} |  |")
-    lines.append(f"| impact.peak_force_bw mean ({meta.get('impact_force_source', 'snapshot')}) | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | trend |")
-    if L['impact'].get('peak_force_bw_p95') is not None:
-        lines.append(f"| impact.peak_force_bw_p95 | {fmt(L['impact']['peak_force_bw_p95'], unit=' BW')} | {fl('impact.peak_force_bw_p95')} |")
-        lines.append(f"| impact.peak_force_bw_max | {fmt(L['impact']['peak_force_bw_max'], unit=' BW')} | trend |")
-    lines.append(f"| impact.touchdown_vel | {fmt(L['impact']['touchdown_vel'], unit=' m/s')} | {fl('impact.touchdown_vel')} |")
-    lines.append(f"| swing.apex_height [FL,FR,RL,RR] | {fmt_array(L['swing']['apex_height'], unit=' m')} | trend |")
-    lines.append(f"| swing.knee_excursion [FL,FR,RL,RR] | {fmt_array(L['swing']['knee_excursion'], unit=' rad')} | trend |")
+    lines.append(
+        f"| impact.peak_force_bw mean ({meta.get('impact_force_source', 'snapshot')}) | {fmt(L['impact']['peak_force_bw'], unit=' BW')} | trend |"
+    )
+    if L["impact"].get("peak_force_bw_p95") is not None:
+        lines.append(
+            f"| impact.peak_force_bw_p95 | {fmt(L['impact']['peak_force_bw_p95'], unit=' BW')} | {fl('impact.peak_force_bw_p95')} |"
+        )
+        lines.append(
+            f"| impact.peak_force_bw_max | {fmt(L['impact']['peak_force_bw_max'], unit=' BW')} | trend |"
+        )
+    lines.append(
+        f"| impact.touchdown_vel | {fmt(L['impact']['touchdown_vel'], unit=' m/s')} | {fl('impact.touchdown_vel')} |"
+    )
+    lines.append(
+        f"| swing.apex_height [FL,FR,RL,RR] | {fmt_array(L['swing']['apex_height'], unit=' m')} | trend |"
+    )
+    lines.append(
+        f"| swing.knee_excursion [FL,FR,RL,RR] | {fmt_array(L['swing']['knee_excursion'], unit=' rad')} | trend |"
+    )
     P = L.get("posture") or {}
     if P.get("base_height") is not None or P.get("pitch_terrain_rel_mean") is not None:
-        lines.append(f"| posture.base_height (trunk above terrain) | {fmt(P['base_height'], unit=' m')} | trend |")
-        lines.append(f"| posture.base_height_std (within episode) | {fmt(P['base_height_std'], unit=' m')} | trend |")
-        lines.append(f"| posture.pitch_terrain_rel_mean | {fmt(P['pitch_terrain_rel_mean'], unit=' rad')} | {fl('posture.pitch_terrain_rel_mean') or 'trend'} |")
-        lines.append(f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | {fl('posture.pitch_terrain_rel_std') or 'trend'} |")
-        lines.append(f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | {fl('posture.roll_terrain_rel_mean') or 'trend'} |")
-        lines.append(f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | {fl('posture.roll_terrain_rel_std') or 'trend'} |")
+        lines.append(
+            f"| posture.base_height (trunk above terrain) | {fmt(P['base_height'], unit=' m')} | trend |"
+        )
+        lines.append(
+            f"| posture.base_height_std (within episode) | {fmt(P['base_height_std'], unit=' m')} | trend |"
+        )
+        lines.append(
+            f"| posture.pitch_terrain_rel_mean | {fmt(P['pitch_terrain_rel_mean'], unit=' rad')} | {fl('posture.pitch_terrain_rel_mean') or 'trend'} |"
+        )
+        lines.append(
+            f"| posture.pitch_terrain_rel_std | {fmt(P['pitch_terrain_rel_std'], unit=' rad')} | {fl('posture.pitch_terrain_rel_std') or 'trend'} |"
+        )
+        lines.append(
+            f"| posture.roll_terrain_rel_mean | {fmt(P['roll_terrain_rel_mean'], unit=' rad')} | {fl('posture.roll_terrain_rel_mean') or 'trend'} |"
+        )
+        lines.append(
+            f"| posture.roll_terrain_rel_std | {fmt(P['roll_terrain_rel_std'], unit=' rad')} | {fl('posture.roll_terrain_rel_std') or 'trend'} |"
+        )
     A = L.get("asymmetry") or {}
     if A.get("duty_left_right") is not None:
         lines.append(f"| asymmetry.duty_left_right | {fmt(A['duty_left_right'])} | trend |")
         lines.append(f"| asymmetry.duty_front_rear | {fmt(A['duty_front_rear'])} | trend |")
     if A.get("torque_left_right") is not None:
-        lines.append(f"| asymmetry.torque_left_right (share, +1 = all load left) | {fmt(A['torque_left_right'])} | trend |")
+        lines.append(
+            f"| asymmetry.torque_left_right (share, +1 = all load left) | {fmt(A['torque_left_right'])} | trend |"
+        )
         lines.append(f"| asymmetry.torque_front_rear | {fmt(A['torque_front_rear'])} | trend |")
-        lines.append(f"| asymmetry.sat_pct_left_right | {fmt(A['sat_pct_left_right'], unit=' pp')} | trend |")
-        lines.append(f"| asymmetry.sat_pct_per_leg [FL,FR,RL,RR] | {fmt_array(A['sat_pct_per_leg'], unit=' %')} | trend |")
-        lines.append(f"| asymmetry.torque_per_leg [FL,FR,RL,RR] | {fmt_array(A['torque_per_leg'], unit=' Nm')} | trend |")
+        lines.append(
+            f"| asymmetry.sat_pct_left_right | {fmt(A['sat_pct_left_right'], unit=' pp')} | trend |"
+        )
+        lines.append(
+            f"| asymmetry.sat_pct_per_leg [FL,FR,RL,RR] | {fmt_array(A['sat_pct_per_leg'], unit=' %')} | trend |"
+        )
+        lines.append(
+            f"| asymmetry.torque_per_leg [FL,FR,RL,RR] | {fmt_array(A['torque_per_leg'], unit=' Nm')} | trend |"
+        )
     if A.get("swing_apex_left_right") is not None:
-        lines.append(f"| asymmetry.swing_apex_left_right | {fmt(A['swing_apex_left_right'], unit=' m')} | trend |")
+        lines.append(
+            f"| asymmetry.swing_apex_left_right | {fmt(A['swing_apex_left_right'], unit=' m')} | trend |"
+        )
     worst = _worst_joints(L["actuator"], 3)
     if worst:
         lines.append(f"| actuator.torque_sat_pct worst joints | {worst} | trend |")
     lines.append(f"| smooth.action_rate | {fmt(L['smooth']['action_rate'])} |  |")
     lines.append(f"| smooth.joint_acc | {fmt(L['smooth']['joint_acc'], unit=' rad/s^2')} |  |")
-    lines.append(f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |")
-    lines.append(f"| actuator.vel_sat_pct | {fmt(L['actuator']['vel_sat_pct'], unit=' %')} | {fl('actuator.vel_sat_pct')} |")
-    lines.append(f"| energy.cost_of_transport | {fmt(L['energy']['cost_of_transport'])} | {fl('energy.cost_of_transport')} |")
+    lines.append(
+        f"| actuator.torque_sat_pct | {fmt(L['actuator']['torque_sat_pct'], unit=' %')} | {fl('actuator.torque_sat_pct')} |"
+    )
+    lines.append(
+        f"| actuator.vel_sat_pct | {fmt(L['actuator']['vel_sat_pct'], unit=' %')} | {fl('actuator.vel_sat_pct')} |"
+    )
+    lines.append(
+        f"| energy.cost_of_transport | {fmt(L['energy']['cost_of_transport'])} | {fl('energy.cost_of_transport')} |"
+    )
     lines.append("\n## Plots\n")
     plots = ["gait_diagram", "tracking", "attitude", "actions", "swing"]
     if P.get("base_height") is not None:
@@ -1204,8 +1319,9 @@ def sanitize(obj):
 def main():
     parser = argparse.ArgumentParser(description="Analyze a locomotion rollout.h5 (sim-free).")
     parser.add_argument("--rollout", type=str, required=True, help="Path to rollout.h5.")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Output dir (default: the rollout's directory).")
+    parser.add_argument(
+        "--output", type=str, default=None, help="Output dir (default: the rollout's directory)."
+    )
     args = parser.parse_args()
 
     rollout_path = Path(args.rollout)
@@ -1225,8 +1341,11 @@ def main():
     if "first_episode_length" in data:
         # Full-episode benchmark: analyze each env's first episode only.
         first_len = np.asarray(data["first_episode_length"]).astype(int)
-        segments = [dict(seg, end=min(seg["end"], int(first_len[seg["env"]])))
-                    for seg in segments if seg["start"] == 0]
+        segments = [
+            dict(seg, end=min(seg["end"], int(first_len[seg["env"]])))
+            for seg in segments
+            if seg["start"] == 0
+        ]
         segments = [seg for seg in segments if seg["end"] - seg["start"] >= MIN_SEGMENT_LEN]
     print(f"[INFO] {len(segments)} usable segments (>= {MIN_SEGMENT_LEN} steps)")
     if not segments:
@@ -1238,8 +1357,10 @@ def main():
     print(f"[INFO] Wrote {out_dir / 'metrics.json'}")
 
     seg = _pick_segment(segments)
-    print(f"[INFO] Representative segment: env {seg['env']}, "
-          f"{seg['end'] - seg['start']} steps ({(seg['end']-seg['start'])*dt:.1f}s)")
+    print(
+        f"[INFO] Representative segment: env {seg['env']}, "
+        f"{seg['end'] - seg['start']} steps ({(seg['end']-seg['start'])*dt:.1f}s)"
+    )
     plot_gait_diagram(data, seg, dt, plots_dir / "gait_diagram.png")
     plot_tracking(data, seg, dt, plots_dir / "tracking.png")
     plot_attitude(data, seg, dt, plots_dir / "attitude.png")
@@ -1248,8 +1369,10 @@ def main():
     if has_posture(data):
         plot_posture(data, seg, dt, plots_dir / "posture.png")
     else:
-        print("[INFO] No terrain-relative posture datasets in this rollout "
-              "(no height scanner, or a pre-Run-D recording); skipping posture metrics and plot.")
+        print(
+            "[INFO] No terrain-relative posture datasets in this rollout "
+            "(no height scanner, or a pre-Run-D recording); skipping posture metrics and plot."
+        )
     print(f"[INFO] Wrote plots to {plots_dir}")
 
     write_report(metrics, out_dir / "report.md")

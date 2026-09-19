@@ -39,26 +39,37 @@ def _get_usd_path() -> str:
         if os.path.exists(path):
             return path
         print(f"[WARNING] MELDOG_USD_PATH set but file not found: {path}")
-    
+
     # Option 2: Check common locations
     possible_paths = [
         # User's known location
         "/home/frydjak/Downloads/Meldog-1.4-no-ground-plane.usd",
         # Relative to this file
-        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "assets", "robots", "meldog", "Meldog-1.4-no-ground-plane.usd"),
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "..",
+            "assets",
+            "robots",
+            "meldog",
+            "Meldog-1.4-no-ground-plane.usd",
+        ),
         # Relative to CWD
         "assets/robots/meldog/Meldog-1.4-no-ground-plane.usd",
     ]
-    
+
     for path in possible_paths:
         abs_path = os.path.abspath(path)
         if os.path.exists(abs_path):
             print(f"[INFO] Found robot USD at: {abs_path}")
             return abs_path
-    
+
     # Fallback - will fail later with clear error
     print("[ERROR] Robot USD not found! Set MELDOG_USD_PATH or copy USD to assets/robots/meldog/")
     return "/home/frydjak/Downloads/Meldog-1.4-no-ground-plane.usd"
+
 
 MELDOG_USD_PATH = _get_usd_path()
 
@@ -86,10 +97,18 @@ MELDOG_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, -0.1),  # Negative because of USD model origin
         joint_pos={
-            "LFT_joint": 0.0, "LFH_joint": -0.6, "LFK_joint": 1.3,
-            "RFT_joint": 0.0, "RFH_joint": -0.6, "RFK_joint": 1.3,
-            "LRT_joint": 0.0, "LRH_joint": -0.6, "LRK_joint": 1.3,
-            "RRT_joint": 0.0, "RRH_joint": -0.6, "RRK_joint": 1.3,
+            "LFT_joint": 0.0,
+            "LFH_joint": -0.6,
+            "LFK_joint": 1.3,
+            "RFT_joint": 0.0,
+            "RFH_joint": -0.6,
+            "RFK_joint": 1.3,
+            "LRT_joint": 0.0,
+            "LRH_joint": -0.6,
+            "LRK_joint": 1.3,
+            "RRT_joint": 0.0,
+            "RRH_joint": -0.6,
+            "RRK_joint": 1.3,
         },
         joint_vel={".*": 0.0},
     ),
@@ -100,7 +119,7 @@ MELDOG_CFG = ArticulationCfg(
             saturation_effort=35.0,
             stiffness=40.0,
             damping=1.0,
-            #friction=0.0312,
+            # friction=0.0312,
             velocity_limit=18.9,
         ),
     },
@@ -112,7 +131,7 @@ MELDOG_CFG = ArticulationCfg(
 @configclass
 class BaseEventCfg:
     """Minimal domain randomization for simulation training."""
-    
+
     physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -163,7 +182,7 @@ class V2EventCfg(BaseEventCfg):
 @configclass
 class Sim2RealEventCfg(BaseEventCfg):
     """Aggressive domain randomization for sim-to-real transfer."""
-    
+
     # Override with wider ranges
     physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
@@ -186,7 +205,7 @@ class Sim2RealEventCfg(BaseEventCfg):
             "operation": "add",
         },
     )
-    
+
     # TODO: Add motor strength randomization, observation noise, action delay, joint friction
 
 
@@ -316,13 +335,13 @@ CONTACT_MARKER_CFG = VisualizationMarkersCfg(
 @configclass
 class BaseMeldogEnvCfg(DirectRLEnvCfg):
     """Base configuration shared by all Meldog environments.
-    
+
     Subclasses should override:
     - terrain: Different terrain types
     - events: Different domain randomization
     - Camera configs: Enable/disable cameras
     """
-    
+
     # Environment settings
     episode_length_s = 20.0
     decimation = 4
@@ -334,11 +353,13 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
 
     # Command generation settings
     command_resample_time_s = 10.0  # Resample commands every 10 seconds (500 steps at 50Hz)
-    standing_env_fraction = 0.02    # 2% of environments get zero velocity commands
+    standing_env_fraction = 0.02  # 2% of environments get zero velocity commands
 
     # Curriculum learning settings
-    enable_curriculum = True        # Enable terrain curriculum (increases difficulty based on performance)
-    
+    enable_curriculum = (
+        True  # Enable terrain curriculum (increases difficulty based on performance)
+    )
+
     # Simulation settings
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 200,
@@ -355,87 +376,87 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
             gpu_max_rigid_contact_count=2**24,
         ),
     )
-    
+
     # Scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(
         num_envs=4096,
         env_spacing=3.0,
         replicate_physics=True,
     )
-    
+
     # Robot
     robot: ArticulationCfg = MELDOG_CFG.replace(prim_path="/World/envs/env_.*/Robot")
-    
+
     # Sensors (always present)
     contact_sensor: ContactSensorCfg = CONTACT_SENSOR_CFG
     height_scanner: RayCasterCfg = HEIGHT_SCANNER_CFG
     gt_scanner: RayCasterCfg = GT_SCANNER_CFG
-    
+
     # Cameras (None = disabled, set in subclass to enable)
     tiled_camera_front: TiledCameraCfg | None = None
     tiled_camera_rear: TiledCameraCfg | None = None
     tiled_camera_left: TiledCameraCfg | None = None
     tiled_camera_right: TiledCameraCfg | None = None
     tiled_camera_top: TiledCameraCfg | None = None
-    
+
     # Visualization markers
     lin_vel_marker: VisualizationMarkersCfg = LIN_VEL_MARKER_CFG
     ang_vel_marker: VisualizationMarkersCfg = ANG_VEL_MARKER_CFG
     contact_marker: VisualizationMarkersCfg = CONTACT_MARKER_CFG
-    
+
     # Domain randomization (override in subclass)
     events: BaseEventCfg = BaseEventCfg()
-    
+
     # Terrain (override in subclass)
     terrain: TerrainImporterCfg = None  # Must be set by subclass
-    
-# -- KEY PARAMETERS -- 
+
+    # -- KEY PARAMETERS --
 
     feet_air_time = 0.3
 
-# -- REWARDS --
-    lin_vel_reward_scale = 1.5              # ANYmal: 1.0,   Unitree: 1.5
-    yaw_rate_reward_scale = 0.7             # ANYmal: 0.5,   Unitree: 0.75
-    z_vel_reward_scale = -2.0               # ANYmal: -2.0,  Unitree: -2.0
-    ang_vel_reward_scale = -0.05             # ANYmal: -0.05, Unitree: -0.05
-    
-    joint_torque_reward_scale = -1.0e-4     # ANYmal: -2.5e-5, Unitree: -2.0e-4
-    joint_accel_reward_scale = -2.5e-7     # ANYmal: -2.5e-7, Unitree: -2.5e-7
-    action_rate_reward_scale = -0.01        # ANYmal: -0.01, Unitree: -0.01
-    
-    feet_air_time_reward_scale = 0.3        # ANYmal: 0.5,   Unitree: 0.01
-    undesired_contact_reward_scale = -1.0   # ANYmal: -1.0,  Unitree: None
+    # -- REWARDS --
+    lin_vel_reward_scale = 1.5  # ANYmal: 1.0,   Unitree: 1.5
+    yaw_rate_reward_scale = 0.7  # ANYmal: 0.5,   Unitree: 0.75
+    z_vel_reward_scale = -2.0  # ANYmal: -2.0,  Unitree: -2.0
+    ang_vel_reward_scale = -0.05  # ANYmal: -0.05, Unitree: -0.05
 
-    flat_orientation_reward_scale = -0.0    # ANYmal: 0.0,   Unitree: 0.0
+    joint_torque_reward_scale = -1.0e-4  # ANYmal: -2.5e-5, Unitree: -2.0e-4
+    joint_accel_reward_scale = -2.5e-7  # ANYmal: -2.5e-7, Unitree: -2.5e-7
+    action_rate_reward_scale = -0.01  # ANYmal: -0.01, Unitree: -0.01
 
-# -- V2 REWARDS (Spot-ported gait-quality terms) --
+    feet_air_time_reward_scale = 0.3  # ANYmal: 0.5,   Unitree: 0.01
+    undesired_contact_reward_scale = -1.0  # ANYmal: -1.0,  Unitree: None
+
+    flat_orientation_reward_scale = -0.0  # ANYmal: 0.0,   Unitree: 0.0
+
+    # -- V2 REWARDS (Spot-ported gait-quality terms) --
     # All scales default to 0.0 -> the term is neither computed nor logged, so
     # every v0 task/config/checkpoint behaves bit-identically. V2 configs set them.
-    foot_slip_reward_scale = 0.0            # Spot foot_slip_penalty (planar slip in contact)
-    gait_sync_reward_scale = 0.0           # Spot GaitReward (diagonal-trot sync/async product)
-    gait_sync_std = 0.1                     # GaitReward exp kernel width
-    gait_sync_max_err = 0.2                 # GaitReward per-term clip (seconds)
-    gait_sync_vel_threshold = 0.5           # gate on body speed when command is ~0
-    air_time_variance_reward_scale = 0.0   # Spot air_time_variance_penalty
-    air_time_mode_reward_scale = 0.0       # Spot air_time_reward (per-foot mode-time shaping)
-    air_time_mode_time = 0.3                # target gait phase duration (seconds)
-    air_time_mode_vel_threshold = 0.5       # gate on body speed when command is ~0
-    foot_clearance_reward_scale = 0.0      # Spot foot_clearance_reward (terrain-relative here)
-    foot_clearance_target = 0.08            # target swing-foot height above terrain (m)
-    foot_clearance_std = 0.05               # clearance exp kernel width
-    foot_clearance_tanh_mult = 2.0          # weights clearance error by planar foot speed
-    joint_deviation_hip_reward_scale = 0.0 # L1 deviation of hip-abduction (T) joints
-    contact_schedule_reward_scale = 0.0    # Run C: match feet contacts to the phase clock
+    foot_slip_reward_scale = 0.0  # Spot foot_slip_penalty (planar slip in contact)
+    gait_sync_reward_scale = 0.0  # Spot GaitReward (diagonal-trot sync/async product)
+    gait_sync_std = 0.1  # GaitReward exp kernel width
+    gait_sync_max_err = 0.2  # GaitReward per-term clip (seconds)
+    gait_sync_vel_threshold = 0.5  # gate on body speed when command is ~0
+    air_time_variance_reward_scale = 0.0  # Spot air_time_variance_penalty
+    air_time_mode_reward_scale = 0.0  # Spot air_time_reward (per-foot mode-time shaping)
+    air_time_mode_time = 0.3  # target gait phase duration (seconds)
+    air_time_mode_vel_threshold = 0.5  # gate on body speed when command is ~0
+    foot_clearance_reward_scale = 0.0  # Spot foot_clearance_reward (terrain-relative here)
+    foot_clearance_target = 0.08  # target swing-foot height above terrain (m)
+    foot_clearance_std = 0.05  # clearance exp kernel width
+    foot_clearance_tanh_mult = 2.0  # weights clearance error by planar foot speed
+    joint_deviation_hip_reward_scale = 0.0  # L1 deviation of hip-abduction (T) joints
+    contact_schedule_reward_scale = 0.0  # Run C: match feet contacts to the phase clock
     # Run D posture terms. base_height penalizes (trunk height above terrain -
     # target)^2; flat_orientation_terrain penalizes tilt relative to the LOCAL
     # TERRAIN PLANE (fitted from the height scanner) instead of to gravity, so the
     # robot may lean with a slope. On flat ground the latter is identical to
     # flat_orientation_l2 -- V2 configs therefore run one or the other, not both.
-    base_height_reward_scale = 0.0         # Run D: L2 penalty on trunk height error
-    base_height_target = 0.34               # measured nominal standing height (m)
+    base_height_reward_scale = 0.0  # Run D: L2 penalty on trunk height error
+    base_height_target = 0.34  # measured nominal standing height (m)
     flat_orientation_terrain_reward_scale = 0.0  # Run D: terrain-relative orientation
 
-# -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
+    # -- V2 BEHAVIOR FLAGS (defaults reproduce v0 behavior) --
     # feet_air_time gate: v0 gates on norm(cmd[:2]); True gates on full 3-dim command.
     air_time_gate_full_cmd = False
     # Fraction of resampled envs given a pure-rotation command (linear zeroed, wz kept).
@@ -446,7 +467,7 @@ class BaseMeldogEnvCfg(DirectRLEnvCfg):
     # contact_schedule reward matches diagonal pairs to the clock halves, and
     # foot_clearance switches to its swing-window form.
     gait_clock = False
-    gait_clock_freq = 1.7                   # gait cycles per second
+    gait_clock_freq = 1.7  # gait cycles per second
     # Run B: randomize reset state (yaw +/-pi, joint pos +/-0.1 rad, joint vel
     # +/-0.5, root lin vel +/-0.5 m/s xy). Inline in _reset_idx (see V2EventCfg).
     reset_randomization = False

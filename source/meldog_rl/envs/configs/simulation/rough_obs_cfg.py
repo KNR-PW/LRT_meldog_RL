@@ -5,15 +5,15 @@
 
 import isaaclab.sim as sim_utils
 from isaaclab.terrains import (
-    TerrainImporterCfg,
     MeshRepeatedBoxesTerrainCfg,
     MeshRepeatedCylindersTerrainCfg,
     MeshRepeatedPyramidsTerrainCfg,
+    TerrainImporterCfg,
 )
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 from isaaclab.utils import configclass
 
-from ..base_cfg import BaseMeldogEnvCfg, BaseEventCfg
+from ..base_cfg import BaseEventCfg, BaseMeldogEnvCfg
 from .terrain_utils import make_cylinder_high_poly
 
 

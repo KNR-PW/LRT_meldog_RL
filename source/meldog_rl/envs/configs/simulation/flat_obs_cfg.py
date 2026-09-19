@@ -5,18 +5,17 @@
 
 import isaaclab.sim as sim_utils
 from isaaclab.terrains import (
-    TerrainImporterCfg,
-    TerrainGeneratorCfg,
     MeshPlaneTerrainCfg,
     MeshRepeatedBoxesTerrainCfg,
     MeshRepeatedCylindersTerrainCfg,
     MeshRepeatedPyramidsTerrainCfg,
+    TerrainGeneratorCfg,
+    TerrainImporterCfg,
 )
 from isaaclab.utils import configclass
 
-from ..base_cfg import BaseMeldogEnvCfg, BaseEventCfg
+from ..base_cfg import BaseEventCfg, BaseMeldogEnvCfg
 from .terrain_utils import make_cylinder_high_poly
-
 
 FLAT_OBS_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),

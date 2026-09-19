@@ -10,8 +10,8 @@ to a command and repeats with period ``BENCHMARK_CYCLE_S``. Applied every step, 
 import torch
 
 BENCHMARK_SCHEDULE = [
-    (0.0, (0.8, 0.0, 0.0)),   # 0-5 s: walk forward
-    (5.0, (0.0, 0.0, 0.8)),   # 5-10 s: turn in place
+    (0.0, (0.8, 0.0, 0.0)),  # 0-5 s: walk forward
+    (5.0, (0.0, 0.0, 0.8)),  # 5-10 s: turn in place
     (10.0, (0.5, 0.3, 0.0)),  # 10-15 s: diagonal walk
 ]
 BENCHMARK_CYCLE_S = 15.0

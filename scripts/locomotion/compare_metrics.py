@@ -32,9 +32,19 @@ COLUMNS = [
     ("phase FR,RL,RR", ("gait", "phase_offset", "mean"), "gait.phase_offset", "list"),
     ("stride Hz", ("gait", "stride_freq", "mean"), "gait.stride_freq", "{:.2f}"),
     ("slip m/s", ("slip", "mean_vel", "mean"), "slip.mean_vel", "{:.3f}"),
-    ("impact p95 BW", ("impact", "peak_force_bw_p95", "mean"), "impact.peak_force_bw_p95", "{:.2f}"),
+    (
+        "impact p95 BW",
+        ("impact", "peak_force_bw_p95", "mean"),
+        "impact.peak_force_bw_p95",
+        "{:.2f}",
+    ),
     ("touchdown m/s", ("impact", "touchdown_vel", "mean"), "impact.touchdown_vel", "{:.2f}"),
-    ("pitch rel. terrain std rad", ("posture", "pitch_terrain_rel_std", "mean"), "posture.pitch_terrain_rel_std", "{:.3f}"),
+    (
+        "pitch rel. terrain std rad",
+        ("posture", "pitch_terrain_rel_std", "mean"),
+        "posture.pitch_terrain_rel_std",
+        "{:.3f}",
+    ),
     ("trunk height m", ("posture", "base_height", "mean"), None, "{:.3f}"),
     ("torque sat %", ("actuator", "torque_sat_pct", "mean"), "actuator.torque_sat_pct", "{:.1f}"),
     ("vel sat %", ("actuator", "vel_sat_pct", "mean"), "actuator.vel_sat_pct", "{:.1f}"),
@@ -78,7 +88,11 @@ def rows_for(runs):
         task = meta.get("task") or ""
         terrain = meta.get("bench_terrain") or "task"
         if terrain == "task":
-            terrain = "flat (task)" if "flat" in task.lower() else "rough (task)" if "rough" in task.lower() else "task"
+            terrain = (
+                "flat (task)"
+                if "flat" in task.lower()
+                else "rough (task)" if "rough" in task.lower() else "task"
+            )
         row = [
             m["_path"].name,
             meta.get("robot_name") or "meldog",
@@ -116,9 +130,13 @@ def reference_bands(runs, focus_robot: str):
         if not refs:
             continue
         names = ", ".join(sorted({m["meta"].get("robot_name") for m in refs}))
-        out.append(f"\n### Reference band: terrain `{terrain}`, profile `{profile}` ({len(refs)} runs: {names})\n")
-        out.append("Bold values lie outside the reference min-max: ↓ below, ↑ above. Whether that is "
-                   "better or worse depends on the metric.\n")
+        out.append(
+            f"\n### Reference band: terrain `{terrain}`, profile `{profile}` ({len(refs)} runs: {names})\n"
+        )
+        out.append(
+            "Bold values lie outside the reference min-max: ↓ below, ↑ above. Whether that is "
+            "better or worse depends on the metric.\n"
+        )
         header = ["metric", "reference min", "reference max"] + [m["_path"].name for m in focus]
         out.append("| " + " | ".join(header) + " |")
         out.append("|" + "---|" * len(header))
@@ -141,7 +159,9 @@ def reference_bands(runs, focus_robot: str):
                 for i, v in enumerate(vals):
                     j = min(i, width - 1)
                     below, above = v < lo[j], v > hi[j]
-                    parts.append(f"**{v:.3f}↓**" if below else f"**{v:.3f}↑**" if above else f"{v:.3f}")
+                    parts.append(
+                        f"**{v:.3f}↓**" if below else f"**{v:.3f}↑**" if above else f"{v:.3f}"
+                    )
                 cells.append(",".join(parts))
             out.append("| " + " | ".join(cells) + " |")
     return "\n".join(out) + "\n"
@@ -154,14 +174,25 @@ def to_markdown(header, rows) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare locomotion metrics.json files in one table.")
-    parser.add_argument("inputs", nargs="+", type=Path, help="metrics.json files or evaluation folders.")
-    parser.add_argument("--output", type=Path, default=None, help="Also write the Markdown table here.")
-    parser.add_argument("--csv", type=Path, default=None, help="Also write the table as CSV (no flag emoji).")
+    parser = argparse.ArgumentParser(
+        description="Compare locomotion metrics.json files in one table."
+    )
     parser.add_argument(
-        "--bands", type=str, default=None, metavar="ROBOT",
+        "inputs", nargs="+", type=Path, help="metrics.json files or evaluation folders."
+    )
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Also write the Markdown table here."
+    )
+    parser.add_argument(
+        "--csv", type=Path, default=None, help="Also write the table as CSV (no flag emoji)."
+    )
+    parser.add_argument(
+        "--bands",
+        type=str,
+        default=None,
+        metavar="ROBOT",
         help="Also print, per terrain and profile, the min-max of each metric over all other robots and "
-             "mark where ROBOT's runs fall outside it (e.g. --bands meldog).",
+        "mark where ROBOT's runs fall outside it (e.g. --bands meldog).",
     )
     args = parser.parse_args()
 

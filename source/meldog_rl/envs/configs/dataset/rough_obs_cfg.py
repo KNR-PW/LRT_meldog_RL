@@ -5,17 +5,17 @@
 
 from isaaclab.utils import configclass
 
-from ..base_cfg import CAMERA_FRONT, CAMERA_BACK, CAMERA_LEFT, CAMERA_RIGHT, CAMERA_TOP
+from ..base_cfg import CAMERA_BACK, CAMERA_FRONT, CAMERA_LEFT, CAMERA_RIGHT, CAMERA_TOP
 from ..simulation.rough_obs_cfg import RoughObsSimCfg
 
 
 @configclass
 class RoughObsDatasetCfg(RoughObsSimCfg):
     """Rough terrain + obstacles with cameras enabled for dataset collection.
-    
+
     Inherits terrain from RoughObsSimCfg, enables all cameras.
     """
-    
+
     # Enable all cameras for data collection
     tiled_camera_front = CAMERA_FRONT
     tiled_camera_rear = CAMERA_BACK

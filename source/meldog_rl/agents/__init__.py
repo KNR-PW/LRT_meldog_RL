@@ -5,8 +5,8 @@
 
 from .rsl_rl_ppo_cfg import (
     MeldogFlatPPORunnerCfg,
-    MeldogRoughPPORunnerCfg,
     MeldogFlatV2PPORunnerCfg,
+    MeldogRoughPPORunnerCfg,
     MeldogRoughV2PPORunnerCfg,
 )
 

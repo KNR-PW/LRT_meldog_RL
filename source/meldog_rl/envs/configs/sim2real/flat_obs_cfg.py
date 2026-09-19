@@ -12,9 +12,9 @@ from ..simulation.flat_obs_cfg import FlatObsSimCfg
 @configclass
 class FlatObsRealCfg(FlatObsSimCfg):
     """Flat terrain + obstacles with domain randomization for sim-to-real.
-    
+
     Inherits terrain from FlatObsSimCfg, adds aggressive randomization.
     """
-    
+
     # Override with aggressive domain randomization
     events: Sim2RealEventCfg = Sim2RealEventCfg()

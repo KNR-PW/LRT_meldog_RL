@@ -31,37 +31,31 @@ Dataset Collection (cameras enabled):
 
 import gymnasium as gym
 
-from .meldog_env import MeldogEnv
-from .configs import (
-    # Simulation
-    FlatSimCfg,
-    RoughSimCfg,
-    FlatObsSimCfg,
-    RoughObsSimCfg,
-    # Simulation V2 (gait-quality)
-    FlatSimV2Cfg,
-    RoughSimV2Cfg,
-    RoughSimV2D1Cfg,
-    # Sim2Real
-    FlatRealCfg,
-    RoughRealCfg,
-    FlatObsRealCfg,
-    RoughObsRealCfg,
-    # Dataset
-    FlatDatasetCfg,
-    RoughDatasetCfg,
-    FlatObsDatasetCfg,
-    RoughObsDatasetCfg,
-)
-
 # Agent configs
 from ..agents import (
     MeldogFlatPPORunnerCfg,
-    MeldogRoughPPORunnerCfg,
     MeldogFlatV2PPORunnerCfg,
+    MeldogRoughPPORunnerCfg,
     MeldogRoughV2PPORunnerCfg,
 )
-
+from .configs import (  # Simulation; Simulation V2 (gait-quality); Sim2Real; Dataset
+    FlatDatasetCfg,
+    FlatObsDatasetCfg,
+    FlatObsRealCfg,
+    FlatObsSimCfg,
+    FlatRealCfg,
+    FlatSimCfg,
+    FlatSimV2Cfg,
+    RoughDatasetCfg,
+    RoughObsDatasetCfg,
+    RoughObsRealCfg,
+    RoughObsSimCfg,
+    RoughRealCfg,
+    RoughSimCfg,
+    RoughSimV2Cfg,
+    RoughSimV2D1Cfg,
+)
+from .meldog_env import MeldogEnv
 
 # Locomotion - Simulation
 gym.register(
@@ -235,7 +229,7 @@ __all__ = [
     # Sim2Real configs
     "FlatRealCfg",
     "RoughRealCfg",
-    "FlatObsRealCfg", 
+    "FlatObsRealCfg",
     "RoughObsRealCfg",
     # Dataset configs
     "FlatDatasetCfg",

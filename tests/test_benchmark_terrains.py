@@ -15,7 +15,9 @@ import os
 import sys
 from types import SimpleNamespace
 
-_PATH = os.path.join(os.path.dirname(__file__), "..", "source", "meldog_rl", "eval", "benchmark_terrains.py")
+_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "source", "meldog_rl", "eval", "benchmark_terrains.py"
+)
 _spec = importlib.util.spec_from_file_location("benchmark_terrains", _PATH)
 bt = importlib.util.module_from_spec(_spec)
 sys.modules["benchmark_terrains"] = bt
@@ -25,19 +27,30 @@ _spec.loader.exec_module(bt)
 def rough_like_generator():
     """Proportions of Isaac Lab's ROUGH_TERRAINS_CFG (as used by Meldog's rough task)."""
     subs = {
-        "pyramid_stairs": 0.2, "pyramid_stairs_inv": 0.2, "boxes": 0.2,
-        "random_rough": 0.2, "hf_pyramid_slope": 0.1, "hf_pyramid_slope_inv": 0.1,
+        "pyramid_stairs": 0.2,
+        "pyramid_stairs_inv": 0.2,
+        "boxes": 0.2,
+        "random_rough": 0.2,
+        "hf_pyramid_slope": 0.1,
+        "hf_pyramid_slope_inv": 0.1,
     }
     return SimpleNamespace(
-        num_rows=10, num_cols=20,
+        num_rows=10,
+        num_cols=20,
         sub_terrains={k: SimpleNamespace(proportion=v) for k, v in subs.items()},
     )
 
 
 def test_column_kinds():
     kinds = bt.column_kinds(rough_like_generator())
-    expected = (["pyramid_stairs"] * 4 + ["pyramid_stairs_inv"] * 4 + ["boxes"] * 4
-                + ["random_rough"] * 4 + ["hf_pyramid_slope"] * 2 + ["hf_pyramid_slope_inv"] * 2)
+    expected = (
+        ["pyramid_stairs"] * 4
+        + ["pyramid_stairs_inv"] * 4
+        + ["boxes"] * 4
+        + ["random_rough"] * 4
+        + ["hf_pyramid_slope"] * 2
+        + ["hf_pyramid_slope_inv"] * 2
+    )
     assert kinds == expected, kinds
     print("  OK  column kinds follow the proportion rule")
 

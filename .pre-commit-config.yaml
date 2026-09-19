@@ -20,6 +20,10 @@
 # The second step widens the gate to every pyflakes check (unused imports, f-strings without
 # placeholders, unused locals): 92 of those exist today and each needs a look, so they are not
 # part of the gate until someone clears them.
+# "legacy code structure" is a snapshot kept for debugging comparisons: no hook touches it, so it
+# stays byte-identical to the code it was copied from. logs/ and datasets/ are not tracked anyway.
+exclude: '^(legacy code structure/|logs/|datasets/|literature/)'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
