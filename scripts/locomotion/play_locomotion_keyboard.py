@@ -50,9 +50,10 @@ import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 
-import meldog_rl
-from meldog_rl import envs  # This registers the tasks
-from meldog_rl import agents
+# Imported for their side effect: importing these packages registers the Gym task ids.
+import meldog_rl  # noqa: F401
+from meldog_rl import agents  # noqa: F401
+from meldog_rl import envs  # noqa: F401
 
 
 class KeyboardController:

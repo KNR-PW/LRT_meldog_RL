@@ -3,23 +3,17 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Safety hooks, plus a correctness gate (2026-09-19).
+# Safety hooks, a correctness gate, and formatting (2026-09-19).
 #
-# The gate below blocks only code that is broken, never code that is ugly: syntax errors and
-# undefined names. It exists because an undefined name inside a rarely-taken branch silently cost
-# a night of benchmark runs -- the script crashed while writing its output and Isaac Sim still
-# exited 0.
+# The gate is every pyflakes check plus syntax errors: undefined names, unused imports, unused
+# locals, f-strings with nothing to interpolate. It exists because an undefined name read inside a
+# rarely-taken branch silently cost a night of benchmark runs -- the script crashed while writing
+# its output and Isaac Sim still exited 0, so the runner recorded a success.
 #
-# black / isort / pyupgrade are configured here but carry `stages: [manual]`, so they do not run on
-# commit yet. Running them for the first time rewrites most of the 12k lines in the repo, and that
-# belongs in one deliberate commit on main rather than scattered across a feature branch. To do it:
+# Imports kept for their side effect (importing meldog_rl.envs registers the Gym task ids) are
+# marked `# noqa: F401` at the import, with a comment above the block saying why.
 #
-#     pre-commit run --hook-stage manual --all-files     # one commit: "format the codebase"
-#     # then delete the three `stages: [manual]` lines and widen the flake8 --select to E9,F
-#
-# The second step widens the gate to every pyflakes check (unused imports, f-strings without
-# placeholders, unused locals): 92 of those exist today and each needs a look, so they are not
-# part of the gate until someone clears them.
+# black and isort own formatting; line length is 100 and the settings live in pyproject.toml.
 # "legacy code structure" is a snapshot kept for debugging comparisons: no hook touches it, so it
 # stays byte-identical to the code it was copied from. logs/ and datasets/ are not tracked anyway.
 exclude: '^(legacy code structure/|logs/|datasets/|literature/)'
@@ -44,24 +38,21 @@ repos:
     rev: 7.1.1
     hooks:
       - id: flake8
-        name: flake8 (syntax errors and undefined names only)
-        args: ["--select=E9,F63,F7,F82", "--show-source"]
+        name: flake8 (pyflakes checks and syntax errors)
+        args: ["--select=E9,F", "--show-source"]
         additional_dependencies: ["flake8-bugbear==24.10.31"]
 
-  # --- formatting: configured now, switched on with the formatting commit ----------------------
+  # --- formatting -----------------------------------------------------------------------------
   - repo: https://github.com/psf/black
     rev: 24.10.0
     hooks:
       - id: black
-        stages: [manual]
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
     hooks:
       - id: isort
-        stages: [manual]
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.19.0
     hooks:
       - id: pyupgrade
         args: ["--py310-plus"]
-        stages: [manual]

@@ -14,8 +14,6 @@ Usage:
 """
 
 import argparse
-import glob
-import os
 import re
 import shutil
 from pathlib import Path
@@ -143,7 +141,7 @@ def main():
                 f.write(f"{args.message}\n")
             else:
                 f.write("*(Add your release notes here)*\n")
-        print(f"  -> Created README.md")
+        print("  -> Created README.md")
 
         print(f"\n[SUCCESS] Model released successfully to: {release_dir}")
         print("You can now safely commit this folder to Git.")

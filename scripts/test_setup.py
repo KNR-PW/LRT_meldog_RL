@@ -47,7 +47,7 @@ def test_configs():
 
         from meldog_rl.envs.configs.sim2real.rough_cfg import RoughRealCfg
 
-        cfg2 = RoughRealCfg()
+        RoughRealCfg()
         print("  RoughRealCfg instantiated")
 
         from meldog_rl.envs.configs.dataset.rough_cfg import RoughDatasetCfg
@@ -57,7 +57,7 @@ def test_configs():
         print(f"    Cameras enabled: {cfg3.tiled_camera_front is not None}")
 
     except ImportError as e:
-        print(f"  Isaac Lab not available (run with --with-isaaclab)")
+        print("  Isaac Lab not available (run with --with-isaaclab)")
         print(f"  Error: {e}")
         return None
     except Exception as e:
@@ -77,7 +77,7 @@ def test_task_registration():
     try:
         import gymnasium as gym
 
-        from meldog_rl import envs
+        from meldog_rl import envs  # noqa: F401
 
         expected_tasks = [
             "Meldog-RL-Locomotion-Flat-Sim-v0",
@@ -95,12 +95,12 @@ def test_task_registration():
             print(f"    env_cfg: {env_cfg_cls.__name__}")
             print(f"    agent_cfg: {agent_cfg_cls.__name__}")
 
-            env_cfg = env_cfg_cls()
-            agent_cfg = agent_cfg_cls()
+            env_cfg_cls()
+            agent_cfg_cls()
             print("    Both configs instantiate OK")
 
     except ImportError as e:
-        print(f"  Isaac Lab not available")
+        print("  Isaac Lab not available")
         print(f"  Error: {e}")
         return None
     except Exception as e:

@@ -10,7 +10,6 @@ common to all locomotion and dataset collection tasks.
 from __future__ import annotations
 
 import copy
-import math
 import os
 
 import isaaclab.envs.mdp as mdp

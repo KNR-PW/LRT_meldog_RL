@@ -187,18 +187,18 @@ import numpy as np
 import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from prettytable import PrettyTable
-from rsl_rl.runners import OnPolicyRunner
 
 try:
     import robot_lab.tasks  # noqa: F401  (registers robot_lab reference tasks when installed)
 except ImportError:
     pass
 
-import meldog_rl
-from meldog_rl import envs  # This registers the tasks
-from meldog_rl import agents
+# Imported for their side effect: importing these packages registers the Gym task ids.
+import meldog_rl  # noqa: F401
+from meldog_rl import agents  # noqa: F401
+from meldog_rl import envs  # noqa: F401
 from meldog_rl.eval.adapters import load_cfgs, make_adapter, task_tag
-from meldog_rl.eval.benchmark import BENCHMARK_CYCLE_S, BENCHMARK_SCHEDULE, benchmark_commands
+from meldog_rl.eval.benchmark import benchmark_commands
 from meldog_rl.eval.benchmark_terrains import bench_cells
 from meldog_rl.eval.video import BenchmarkVideo, pick_view_envs
 from meldog_rl.utils import make_evaluation_dir

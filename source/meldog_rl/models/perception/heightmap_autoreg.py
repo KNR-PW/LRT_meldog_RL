@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .projector import euler_from_quat
+from .projector import euler_from_quat  # noqa: F401
 
 # =============================================================================
 # COORDINATE TRANSFORM

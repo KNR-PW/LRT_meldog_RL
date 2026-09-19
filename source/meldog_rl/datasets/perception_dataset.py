@@ -9,7 +9,6 @@ Provides:
 - GPUProcessor: On-GPU preprocessing pipeline
 """
 
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -307,7 +306,7 @@ def repack_dataset(src_path: str, dst_path: str, compression: str = "lzf"):
                 else:
                     dst_grp.create_dataset(key, data=data, compression=comp_param, chunks=True)
 
-    print(f"[INFO] Dataset optimization complete\n")
+    print("[INFO] Dataset optimization complete\n")
 
 
 def get_optimized_path(original_path: str, compression: str) -> str:

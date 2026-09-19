@@ -25,7 +25,6 @@ Output:
 import argparse
 import os
 import sys
-from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "source"))
 
@@ -58,8 +57,9 @@ import torch
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 
-import meldog_rl
-from meldog_rl import agents, envs
+# Imported for their side effect: importing these packages registers the Gym task ids.
+import meldog_rl  # noqa: F401
+from meldog_rl import agents, envs  # noqa: F401
 from meldog_rl.utils import make_dataset_dir
 
 # =============================================================================
@@ -351,7 +351,7 @@ def main():
         video_writer.release()
 
     env.close()
-    print(f"\n[DONE] Dataset collection complete!")
+    print("\n[DONE] Dataset collection complete!")
     print(f"[DONE] Episodes: {episode_counter[0]}")
     print(f"[DONE] Output: {output_dir}")
 

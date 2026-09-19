@@ -72,21 +72,20 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-from datetime import datetime
 
 # Imports after AppLauncher
 import gymnasium as gym
 import torch
-from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 
 # Import meldog_rl to register tasks (must be after AppLauncher)
-import meldog_rl
-from meldog_rl import envs  # This registers the tasks
-from meldog_rl import agents
+# Imported for their side effect: importing these packages registers the Gym task ids.
+import meldog_rl  # noqa: F401
+from meldog_rl import agents  # noqa: F401
+from meldog_rl import envs  # noqa: F401
 from meldog_rl.utils import make_locomotion_log_dir
 from meldog_rl.utils.git_utils import save_git_metadata
 

@@ -94,8 +94,9 @@ from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_from_euler
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 from rsl_rl.runners import OnPolicyRunner
 
-import meldog_rl
-from meldog_rl import agents, envs
+# Imported for their side effect: importing these packages registers the Gym task ids.
+import meldog_rl  # noqa: F401
+from meldog_rl import agents, envs  # noqa: F401
 from meldog_rl.models.perception import (
     DepthProjector,
     ElevationMapper,

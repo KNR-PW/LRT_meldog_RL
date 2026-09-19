@@ -33,7 +33,6 @@ import glob
 import math
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "source"))
@@ -50,8 +49,6 @@ from meldog_rl.datasets import (
     GPUProcessorV6,
     SequentialDatasetV5,
     SequentialDatasetV6,
-    get_optimized_path,
-    repack_dataset,
 )
 from meldog_rl.models.perception import (
     HeightmapAutoregressive,
@@ -147,7 +144,7 @@ def train_v5(args):
     save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
 
-    print(f"[INFO] Training V5 ConvGRU model")
+    print("[INFO] Training V5 ConvGRU model")
     print(f"[INFO] Dataset: {args.dataset}")
     print(f"[INFO] Output: {log_dir}")
     print(f"[INFO] Sequences: {len(train_dataset)}")
@@ -364,7 +361,7 @@ def train_v6(args):
     save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
 
-    print(f"[INFO] Training V6 Autoregressive model")
+    print("[INFO] Training V6 Autoregressive model")
     print(f"[INFO] Dataset: {args.dataset}")
     print(f"[INFO] Output: {log_dir}")
     print(f"[INFO] Sequences: {len(train_dataset)}")

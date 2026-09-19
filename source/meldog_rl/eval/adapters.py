@@ -14,8 +14,6 @@ Usage: ``adapter = make_adapter(task)``, then ``adapter.configure_cfg(...)`` bef
 
 from __future__ import annotations
 
-import re
-
 import gymnasium as gym
 import torch
 from isaaclab.utils.math import quat_apply_inverse

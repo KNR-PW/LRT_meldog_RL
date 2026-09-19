@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import sys
 
 from isaaclab.app import AppLauncher
 
