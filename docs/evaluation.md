@@ -12,28 +12,47 @@ range here, change it in the analyzer too.
 ## Locomotion
 
 The ranges apply to **benchmark-mode** runs (`evaluate_locomotion.py --benchmark`: fixed
-seed, terrain and command script). On random rough terrain, attitude and impact ranges
-loosen: flag, don't fail.
+seed, terrain cells, command script, full 20 s episodes, `clean` profile unless stated).
+Survival counts each env's first episode. A fall is trunk tilt above 1.0 rad, or trunk contact
+that the environment itself treats as fatal: Meldog's environment and the Isaac Lab velocity
+environments end the episode as soon as the trunk touches anything above 1 N, and for environments
+without such a termination the evaluator applies a backstop at 20 % of body weight
+(`--fall_base_force_bw`). Measured on the four policies where the backstop can bind, the two
+thresholds give identical survival, so the numbers are comparable. On non-flat terrain the raw attitude is a trend metric and the terrain-relative
+posture (`posture.*_terrain_rel_*`) carries the attitude ranges instead.
 
 | Metric | ✅ good | ⚠️ acceptable | ❌ investigate | Conf. | Source / note |
 |---|---|---|---|---|---|
 | `survival_rate` (flat / rough) | >99 / >95 % | >95 / >85 % | below | M | our own early results as a floor |
 | `tracking.lin_err` (m/s) | <0.15 | <0.30 | ≥0.30 | M | exponential tracking reward geometry (Isaac Lab velocity env) |
 | `tracking.ang_err` (rad/s) | <0.20 | <0.40 | ≥0.40 | M | same |
-| `attitude.roll_mean`, `pitch_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | a nonzero mean is a persistent lean; flat benchmark only |
-| `attitude.roll_std`, `pitch_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | flat benchmark; informational on rough |
+| `attitude.roll_mean`, `pitch_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | a nonzero mean is a persistent lean; flat terrain only |
+| `attitude.roll_std`, `pitch_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | flat terrain only; trend metric elsewhere |
+| `posture.roll_terrain_rel_mean`, `pitch_terrain_rel_mean` (rad) | \|·\|<0.03 | <0.07 | ≥0.07 | M | tilt relative to the local terrain plane; used instead of attitude on non-flat terrain |
+| `posture.roll_terrain_rel_std`, `pitch_terrain_rel_std` (rad) | <0.05 | <0.10 | ≥0.10 | M | same, non-flat terrain |
 | `gait.duty_factor` (per foot) | 0.50–0.65 | 0.45–0.75 | outside | H | trot at moderate speed; a walk is higher |
 | duty-factor spread across feet | <0.05 | <0.10 | ≥0.10 | H | gait symmetry |
 | `gait.phase_offset` vs front-left (FR, RL, RR) | 0.5, 0.5, 0.0 ±0.10 | ±0.15 | outside / null | H | trot signature: diagonal pairs in phase. Null = no stable gait cycle (reported, not flagged) |
 | `gait.stride_freq` (Hz) | 1.0–2.5 | 0.8–3.0 | outside | M | ANYmal ≈1–1.5 Hz, Go2-scale ≈2–3 Hz; above the range looks rushed |
 | `slip.mean_vel` (m/s, feet in contact) | <0.05 | <0.20 | ≥0.20 | L–M | visible sliding starts around 0.2 |
-| `impact.peak_force_bw` (per foot, × body weight) | <2.0 | <3.0 | ≥3.0 | L | nominal trot ≈1–1.5 BW; ≥3 looks like feet smashing down |
+| `impact.peak_force_bw_p95` (95th percentile of touchdown peaks, × body weight) | <2.0 | <3.0 | ≥3.0 | L | nominal trot ≈1–1.5 BW; ≥3 looks like feet smashing down. The mean (`peak_force_bw`) and maximum (`peak_force_bw_max`) are reported as trend metrics; a mean hides occasional smashes |
 | `impact.touchdown_vel` (m/s) | <0.3 | <0.5 | ≥0.5 | L | heuristic |
 | `smooth.action_rate` | — | — | — | — | trend metric: compare between checkpoints only |
 | `smooth.joint_acc` | — | — | — | — | trend metric |
-| `actuator.torque_sat_pct` (of 0.9 × 35 Nm) | <5 % | <20 % | ≥20 % | M | sustained saturation means an actuator-limited policy, a sim-to-real risk |
-| `actuator.vel_sat_pct` (of 0.9 × limit) | <1 % | <5 % | ≥5 % | M | any saturation suggests wild motion |
+| `actuator.torque_sat_pct` (of 0.9 × each joint's effort limit) | <5 % | <20 % | ≥20 % | M | sustained saturation means an actuator-limited policy, a sim-to-real risk |
+| `actuator.vel_sat_pct` (of 0.9 × each joint's velocity limit) | <1 % | <5 % | ≥5 % | M | any saturation suggests wild motion |
 | `energy.cost_of_transport` | <1.0 | <2.0 | ≥2.0 | L–M | quadruped robots typically 0.4–1.2 at moderate speed |
+
+Diagnostic metrics without ranges (reported as trends):
+- `asymmetry.*`: how unevenly the legs work. `torque_left_right` and `torque_front_rear` are shares
+  between −1 and +1 (0 = balanced, +1 = all load on the left / front), `sat_pct_left_right` is the
+  difference in torque-limit time in percentage points, and `torque_per_leg` / `sat_pct_per_leg`
+  give the four legs in FL, FR, RL, RR order. A policy can track its commands well and still load
+  one side far harder than the other; nothing else in the table shows that.
+- `actuator.torque_sat_pct_per_joint` and `torque_mean_abs_per_joint`: the same per joint, with the
+  joint names, so the report can name the joints that sit at their limit.
+- `gait.stride_ref_foot`: which foot the stride cycle was measured from (the one with the clearest
+  cycle), so a single misbehaving foot no longer hides the whole gait section.
 
 Notes:
 - `slip.mean_vel` and `slip.dist_per_step` exclude the first and last sample of every
@@ -42,13 +61,46 @@ Notes:
 - `impact.peak_force_bw` uses the maximum over physics substeps when the recording
   provides it; `meta.impact_force_source` in `metrics.json` says which source was used.
   Older snapshot-based recordings can under-read peaks.
-- `swing.apex_height` and `swing.knee_excursion` (per foot) and the `posture.*` metrics
-  are trend metrics without a range yet.
+- `swing.apex_height`, `swing.knee_excursion` (per foot) and `posture.base_height*` are trend
+  metrics without a range yet.
 
 Background reading: *Learning to Walk in Minutes Using Massively Parallel Deep
 Reinforcement Learning* (Rudin et al., 2021) for the training and reward setup;
 *Learning robust perceptive locomotion for quadrupedal robots in the wild* (Miki et al.,
 2022) for the gait quality to aim for.
+
+## Reference robots (measured 2026-09-19)
+
+What a good policy looks like under the benchmark, measured on six published Isaac Lab
+rough-terrain policies (NVIDIA pretrained checkpoints for ANYmal-B, ANYmal-C, ANYmal-D,
+Unitree Go1, Go2 and A1; 1500 training iterations each): `--benchmark --profile clean`,
+192 envs, one env per terrain cell (so every difficulty row and every obstacle kind is
+walked), same command script for every robot. Values are the minimum and
+maximum over the six policies. The robots weigh 13-52 kg in simulation with legs of 0.40-0.74 m (Meldog: 22.5 kg,
+0.50 m), so size-dependent metrics (stride frequency, trunk height, slip, touchdown velocity) should
+be read with the robot's size in mind. ANYmal and Go1 use learned actuator models that smooth their
+motion; Go2 and A1 use DC motor models like Meldog.
+
+| Metric | Shared `flat` terrain | Shared `rough` terrain |
+|---|---|---|
+| `survival_rate` | 0.96-1.00 | 0.89-1.00 |
+| `tracking.lin_err` (m/s) | 0.040-0.060 | 0.045-0.075 |
+| `tracking.ang_err` (rad/s) | 0.05-0.18 | 0.06-0.18 |
+| `gait.duty_factor` (per foot) | 0.34-0.75 | 0.35-0.76 |
+| `gait.phase_offset` (FR, RL, RR) | 0.46-0.52, 0.47-0.61, 0.00-0.07 | 0.47-0.53, 0.51-0.60, 0.01-0.10 |
+| `gait.stride_freq` (Hz) | 1.67-2.38 | 1.68-2.37 |
+| `slip.mean_vel` (m/s) | 0.053-0.148 | 0.071-0.159 |
+| `impact.peak_force_bw_p95` (BW) | 0.73-1.50 | 0.91-1.77 |
+| `impact.touchdown_vel` (m/s) | 0.043-0.153 | 0.078-0.206 |
+| `posture.pitch_terrain_rel_std` (rad) | 0.018-0.046 | 0.025-0.070 |
+| `posture.base_height` (m) | 0.25-0.56 | 0.25-0.56 |
+| `actuator.torque_sat_pct` (%) | 0.00-0.02 | 0.01-0.34 |
+| `actuator.vel_sat_pct` (%) | 0.0-1.6 | 0.0-1.7 |
+| `energy.cost_of_transport` | 0.43-1.08 | 0.48-1.16 |
+| `asymmetry.sat_pct_left_right` (pp) | -0.03-0.00 | -0.03-0.14 |
+
+`scripts/locomotion/compare_metrics.py --bands meldog` prints this band for any set of runs and
+marks where a robot's values fall outside it.
 
 ## Perception
 

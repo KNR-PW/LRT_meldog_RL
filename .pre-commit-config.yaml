@@ -3,8 +3,23 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-# Safety hooks only (2026-09-13). Formatting and lint (black, flake8, isort, ...) are
-# left out until the codebase gets one deliberate formatting commit.
+# Safety hooks, plus a correctness gate (2026-09-19).
+#
+# The gate below blocks only code that is broken, never code that is ugly: syntax errors and
+# undefined names. It exists because an undefined name inside a rarely-taken branch silently cost
+# a night of benchmark runs -- the script crashed while writing its output and Isaac Sim still
+# exited 0.
+#
+# black / isort / pyupgrade are configured here but carry `stages: [manual]`, so they do not run on
+# commit yet. Running them for the first time rewrites most of the 12k lines in the repo, and that
+# belongs in one deliberate commit on main rather than scattered across a feature branch. To do it:
+#
+#     pre-commit run --hook-stage manual --all-files     # one commit: "format the codebase"
+#     # then delete the three `stages: [manual]` lines and widen the flake8 --select to E9,F
+#
+# The second step widens the gate to every pyflakes check (unused imports, f-strings without
+# placeholders, unused locals): 92 of those exist today and each needs a look, so they are not
+# part of the gate until someone clears them.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -19,3 +34,30 @@ repos:
       - id: check-symlinks
       - id: destroyed-symlinks
       - id: check-case-conflict
+
+  # --- correctness gate: runs on every commit -------------------------------------------------
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        name: flake8 (syntax errors and undefined names only)
+        args: ["--select=E9,F63,F7,F82", "--show-source"]
+        additional_dependencies: ["flake8-bugbear==24.10.31"]
+
+  # --- formatting: configured now, switched on with the formatting commit ----------------------
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        stages: [manual]
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        stages: [manual]
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.19.0
+    hooks:
+      - id: pyupgrade
+        args: ["--py310-plus"]
+        stages: [manual]

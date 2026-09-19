@@ -40,7 +40,12 @@ def str2bool(v):
 parser = argparse.ArgumentParser(description="Evaluate Meldog locomotion policy.")
 parser.add_argument("--task", type=str, default="Meldog-RL-Locomotion-Rough-Sim-v0", help="Task name.")
 parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint.")
-parser.add_argument("--num_envs", type=int, default=100, help="Number of parallel environments.")
+parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point",
+                    help="Agent config entry point (use rsl_rl_distillation_cfg_entry_point for a "
+                         "student trained by distillation).")
+parser.add_argument("--num_envs", type=int, default=None,
+                    help="Number of parallel environments (default: 100, or 192 in benchmark mode: "
+                         "8 per terrain cell, which survival needs to be stable).")
 parser.add_argument("--num_episodes", type=int, default=100, help="Total episodes to evaluate.")
 parser.add_argument("--seed", type=int, default=42, help="Random seed.")
 parser.add_argument("--record", type=str2bool, default=True,
@@ -60,12 +65,72 @@ parser.add_argument(
     ),
 )
 
+parser.add_argument(
+    "--profile", type=str, default="clean", choices=["clean", "real"],
+    help=(
+        "Benchmark conditions, applied the same way to every robot (only with --benchmark). "
+        "clean: no observation noise, pushes or mass randomization, nominal friction, default "
+        "reset pose, curriculum off. real: clean plus observation noise, friction 0.4-1.2, "
+        "trunk mass +-10 %% and pushes."
+    ),
+)
+parser.add_argument(
+    "--bench_terrain", type=str, default="task", choices=["task", "flat", "rough", "obs", "rough_obs"],
+    help=(
+        "Terrain for --benchmark: 'task' keeps the task's own terrain; the others are Meldog's "
+        "shared terrains with a fixed terrain cell per env (difficulty rows 0, 3, 6, 9)."
+    ),
+)
+parser.add_argument(
+    "--bench_commands", type=str, default="absolute", choices=["absolute", "froude"],
+    help=(
+        "Benchmark command script: 'absolute' gives every robot the same speeds; 'froude' scales "
+        "them with the square root of leg length relative to Meldog (0.50 m), so robots of "
+        "different size are compared at dynamically similar speeds."
+    ),
+)
+parser.add_argument(
+    "--video", action="store_true",
+    help="Record a video: four chase cameras on four robots, tiled 2x2, into the eval folder.",
+)
+parser.add_argument("--fall_base_force_bw", type=float, default=None,
+                    help="Trunk contact force counting as a fall, in body weights (default 0.2). "
+                         "Only binds for envs without their own base-contact termination.")
+parser.add_argument("--video_length", type=int, default=500,
+                    help="Video length in simulation steps (500 steps = 10 s at 50 Hz).")
+parser.add_argument("--video_envs", type=int, nargs="*", default=None,
+                    help="Env indices the four chase cameras follow (default: one env per terrain "
+                         "kind, at its hardest difficulty row).")
+parser.add_argument(
+    "--output_root", type=str, default=None,
+    help="Parent folder for the evaluation folder (default: logs/locomotion).",
+)
+parser.add_argument(
+    "--full_episodes", action="store_true",
+    help=(
+        "Count only each env's first episode and start it at step 0 (direct envs such as "
+        "Meldog randomize episode length on reset). Every env then runs a full-length "
+        "episode unless it falls; --num_episodes is set to --num_envs."
+    ),
+)
+
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
+# The robot's own perception cameras stay off unless the user asked for them; --video only needs
+# the render pipeline for the scene camera.
+USER_ENABLE_CAMERAS = bool(args_cli.enable_cameras)
+if args_cli.video:
+    args_cli.enable_cameras = True
+
 # Benchmark mode pins the seed so terrain generation and resets are reproducible.
+if args_cli.num_envs is None:
+    args_cli.num_envs = 192 if args_cli.benchmark else 100
 if args_cli.benchmark:
     args_cli.seed = 42
+    args_cli.full_episodes = True  # benchmark episodes are always full length (finding E1)
+if args_cli.full_episodes:
+    args_cli.num_episodes = args_cli.num_envs
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -84,169 +149,184 @@ from rsl_rl.runners import OnPolicyRunner
 
 from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
 
+import isaaclab_tasks  # noqa: F401  (registers the Isaac Lab reference tasks)
+
+try:
+    import robot_lab.tasks  # noqa: F401  (registers robot_lab reference tasks when installed)
+except ImportError:
+    pass
+
 import meldog_rl
 from meldog_rl import envs  # This registers the tasks
 from meldog_rl import agents
+from meldog_rl.eval.adapters import load_cfgs, make_adapter, task_tag
+from meldog_rl.eval.benchmark import BENCHMARK_CYCLE_S, BENCHMARK_SCHEDULE, benchmark_commands
+from meldog_rl.eval.benchmark_terrains import bench_cells
+from meldog_rl.eval.video import BenchmarkVideo, pick_view_envs
 from meldog_rl.utils import make_evaluation_dir
 from meldog_rl.utils.git_utils import get_git_suffix
 
 
 # Contact detection threshold (Newtons) -- matches the env's contact visualization.
 CONTACT_FORCE_THRESHOLD = 1.0
-
-# Benchmark scripted command sequence (see --benchmark help). Each tuple is
-# (vx, vy, wz); the schedule below maps an episode-clock phase (s) to a command and
-# repeats with period BENCHMARK_CYCLE_S. Applied every step, per env.
-BENCHMARK_SCHEDULE = [
-    (0.0, (0.8, 0.0, 0.0)),   # 0-5 s: walk forward
-    (5.0, (0.0, 0.0, 0.8)),   # 5-10 s: turn in place
-    (10.0, (0.5, 0.3, 0.0)),  # 10-15 s: diagonal walk
-]
-BENCHMARK_CYCLE_S = 15.0
+FALL_TILT_RAD = 1.0            # trunk tilt that counts as a fall
+# Trunk contact force that counts as a fall, in body weights (override with --fall_base_force_bw).
+# This rule is a BACKSTOP, not a shared rule: Meldog's env and every Isaac Lab velocity env
+# terminate the episode themselves as soon as the trunk touches anything with more than 1 N, long
+# before this threshold. It therefore only decides the outcome for envs without such a termination
+# (robot_lab), whose survival numbers are measured under a more permissive rule than the others.
+FALL_BASE_FORCE_BW = 0.2
 
 
-def benchmark_commands(clock, device):
-    """Scripted (vx, vy, wz) command per env from a per-env episode clock (seconds).
+def fall_force_bw() -> float:
+    """Threshold actually in force for this run; module level because the rollout writer needs it."""
+    return FALL_BASE_FORCE_BW if args_cli.fall_base_force_bw is None else args_cli.fall_base_force_bw
+# A fixed 1 N counted a brush as a fall: policies trained without contact termination walk with
+# the trunk low and touch obstacles constantly without ever falling (robot_lab ANYmal-D walks at
+# 0.23 m trunk height and touched something in 191 of 192 envs).
 
-    ``clock`` is a (E,) tensor of episode-elapsed time; the schedule repeats every
-    ``BENCHMARK_CYCLE_S``. Returns an (E, 3) command tensor on ``device``.
-    """
-    import torch as _torch
-    phase = _torch.remainder(clock, BENCHMARK_CYCLE_S)
-    cmd = _torch.zeros((clock.shape[0], 3), device=device)
-    for start, vec in BENCHMARK_SCHEDULE:
-        mask = phase >= start
-        cmd[mask] = _torch.tensor(vec, device=device)
-    return cmd
-
-
-def canonical_foot_label(name: str) -> str:
-    """Map a foot body name to a canonical FL/FR/RL/RR label.
-
-    Meldog leg body names follow the convention ``<side><end>...F_link`` where the
-    first character is the side (L/R) and the second is the end (F=front, R=rear),
-    e.g. ``LFF_link`` -> front-left, ``RRF_link`` -> rear-right.
-
-    Returns a two-letter label ordered front/rear + left/right (FL, FR, RL, RR).
-    """
-    side = name[0].upper()  # L / R
-    end = name[1].upper()   # F / R
-    fb = "F" if end == "F" else "R"
-    lr = "L" if side == "L" else "R"
-    return fb + lr
-
-
-def build_foot_permutation(names):
-    """Return a permutation reordering ``names`` to canonical FL, FR, RL, RR order.
-
-    Falls back to identity order (with a warning) if the names do not map cleanly
-    to the four canonical labels, so recording never crashes on an unexpected rig.
-    """
-    desired = ["FL", "FR", "RL", "RR"]
-    labels = [canonical_foot_label(n) for n in names]
-    if sorted(labels) == sorted(desired):
-        perm = [labels.index(d) for d in desired]
-        ordered_names = [names[i] for i in perm]
-        return perm, ordered_names
-    print(f"[WARN] Foot names {names} -> labels {labels} do not match FL/FR/RL/RR; "
-          f"keeping raw order.")
-    return list(range(len(names))), list(names)
+# Leg length the 'froude' command scaling is relative to (Meldog: 0.25 m thigh + 0.25 m shank).
+FROUDE_REFERENCE_LEG_M = 0.50
+# Real profile: per-env motor strength factor on the actuators' effort limits.
+REAL_MOTOR_STRENGTH = (0.8, 1.2)
 
 
 def main():
     """Evaluate policy, report statistics, and record the rollout."""
 
-    # Get configs
-    env_cfg = gym.spec(args_cli.task).kwargs["env_cfg_entry_point"]()  # Instantiate!
-    agent_cfg = gym.spec(args_cli.task).kwargs["rsl_rl_cfg_entry_point"]()
+    # Get configs (Meldog registers config classes, Isaac Lab registers "module:Class" strings)
+    adapter = make_adapter(args_cli.task)
+    env_cfg, agent_cfg = load_cfgs(args_cli.task, args_cli.agent)
 
     # Obs normalization must match the checkpoint, not the current runner cfg
     # (pre-run-B v1 checkpoints have no normalizer state)
     ckpt = torch.load(args_cli.checkpoint, map_location="cpu", weights_only=False)
     has_norm = any(k.startswith("actor_obs_normalizer.") for k in ckpt["model_state_dict"])
-    agent_cfg.policy.actor_obs_normalization = has_norm
-    agent_cfg.policy.critic_obs_normalization = has_norm
+    for field in ("actor_obs_normalization", "critic_obs_normalization",
+                  "student_obs_normalization", "teacher_obs_normalization"):
+        if hasattr(agent_cfg.policy, field):
+            setattr(agent_cfg.policy, field, has_norm)
     del ckpt
 
-    # Configure for evaluation
-    env_cfg.scene.num_envs = args_cli.num_envs
-    env_cfg.seed = args_cli.seed
-    env_cfg.sim.device = args_cli.device if args_cli.device else "cuda:0"
-
-    # Disable cameras for speed (unless explicitly enabled)
-    if not args_cli.enable_cameras:
+    # Configure for evaluation (cameras off unless requested; benchmark command setup)
+    device = args_cli.device if args_cli.device else "cuda:0"
+    adapter.configure_cfg(env_cfg, num_envs=args_cli.num_envs, seed=args_cli.seed, device=device,
+                          enable_cameras=USER_ENABLE_CAMERAS, benchmark=args_cli.benchmark)
+    if not USER_ENABLE_CAMERAS:
         print("[INFO] Cameras disabled for faster evaluation.")
-        env_cfg.tiled_camera_front = None
-        env_cfg.tiled_camera_rear = None
-        env_cfg.tiled_camera_left = None
-        env_cfg.tiled_camera_right = None
-        env_cfg.tiled_camera_top = None
+    if args_cli.benchmark:
+        for line in adapter.apply_benchmark(env_cfg, args_cli.profile, args_cli.bench_terrain):
+            print(f"[BENCH] {line}")
 
     print(f"[INFO] Evaluating: {args_cli.checkpoint}")
     print(f"[INFO] Running {args_cli.num_envs} envs for {args_cli.num_episodes} total episodes.")
+
+    # Output folder first: the video wrapper needs it before the env exists.
+    save_dir = None
+    if args_cli.record or args_cli.video:
+        tag = task_tag(args_cli.task)
+        if args_cli.benchmark:
+            tag = f"{tag}_on_{args_cli.bench_terrain}_{args_cli.profile}_{args_cli.num_envs}envs"
+        save_dir = make_evaluation_dir("locomotion", tag, base_dir=args_cli.output_root)
+        base_name, n = save_dir.name, 1
+        while True:
+            try:
+                save_dir.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                n += 1
+                save_dir = save_dir.with_name(f"{base_name}_{n}")
 
     # Create environment
     env = gym.make(args_cli.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     raw_env = env.unwrapped
+    adapter.bind(raw_env)
+    cells = None
+    if args_cli.benchmark and args_cli.bench_terrain not in ("task", "flat"):
+        holder, attr = adapter.terrain_cfg_holder(env_cfg)
+        generator = getattr(holder, attr).terrain_generator
+        cells = bench_cells(generator, args_cli.num_envs)
+        adapter.assign_terrain_cells(cells)
+        env.reset()
+        kinds_used = sorted({c[2] for c in cells})
+        print(f"[BENCH] {len(set((c[0], c[1]) for c in cells))} distinct terrain cells over "
+              f"{len(kinds_used)} kinds ({', '.join(kinds_used)}), rows "
+              f"{min(c[0] for c in cells)}-{max(c[0] for c in cells)}; one env per cell.")
+
+    video = None
+    if args_cli.video:
+        view_envs = args_cli.video_envs or pick_view_envs(cells, args_cli.num_envs)
+        video = BenchmarkVideo(adapter.robot, view_envs, save_dir / "video" / "benchmark_4up.mp4")
+        kinds = [cells[i][2] if cells else "task" for i in view_envs]
+        print(f"[INFO] Video: envs {view_envs} ({', '.join(kinds)}), "
+              f"{args_cli.video_length} steps, 2x2 tiled.")
+
+    # Command scaling: 'froude' compares robots at dynamically similar speeds (v ~ sqrt(leg length)).
+    cmd_scale = (1.0, 1.0)
+    if args_cli.benchmark and args_cli.bench_commands == "froude":
+        thigh, shank = adapter.leg_segment_lengths()
+        leg_length = float((thigh + shank).mean())
+        k = (leg_length / FROUDE_REFERENCE_LEG_M) ** 0.5
+        cmd_scale = (k, 1.0 / k)
+        print(f"[BENCH] froude commands: leg {leg_length:.3f} m -> linear x{k:.2f}, angular x{1 / k:.2f}")
+
+    # Real profile: motor strength randomization (works for every actuator model, they all clip
+    # at the effort limit) plus a one-step action delay, applied in the loop below.
+    if args_cli.benchmark and args_cli.profile == "real":
+        factors = torch.empty(args_cli.num_envs, device=device).uniform_(*REAL_MOTOR_STRENGTH)
+        adapter.scale_effort_limits(factors)
+        print(f"[BENCH] motor strength x{REAL_MOTOR_STRENGTH[0]}-{REAL_MOTOR_STRENGTH[1]} per env, "
+              "one control-step action delay")
 
     # Load policy
-    device = args_cli.device if args_cli.device else "cuda:0"
-    runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=device)
+    # Distilled students are StudentTeacher policies and need their own runner class.
+    import rsl_rl.runners as rsl_rl_runners
+
+    runner_cls = getattr(rsl_rl_runners, getattr(agent_cfg, "class_name", "OnPolicyRunner"))
+    runner = runner_cls(env, agent_cfg.to_dict(), log_dir=None, device=device)
     runner.load(args_cli.checkpoint)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
     # ------------------------------------------------------------------
     # Recording setup
     # ------------------------------------------------------------------
-    save_dir = None
     rec = None
-    sensor_perm = robot_perm = None
-    feet_sensor_ids = feet_robot_ids = None
+    feet_sensor_ids = feet_robot_ids = hip_robot_ids = leg_joint_ids = None
     foot_names_canonical = None
     has_terrain_levels = has_terrain_types = has_posture = False
     terrain = None
     if args_cli.record:
-        tag = (args_cli.task
-               .replace("Meldog-RL-Locomotion-", "")
-               .replace("-v0", "")
-               .replace("-", "_")
-               .lower())
-        save_dir = make_evaluation_dir("locomotion", tag)
-        save_dir.mkdir(parents=True, exist_ok=True)
         print(f"[INFO] Recording rollout to: {save_dir / 'rollout.h5'}")
 
         # Foot body indices: forces come from the contact sensor, kinematics from
         # the articulation. Both are reordered independently to FL, FR, RL, RR.
-        feet_sensor_ids, feet_sensor_names = raw_env._contact_sensor.find_bodies(".*F_link")
-        feet_robot_ids, feet_robot_names = raw_env._robot.find_bodies(".*F_link")
-        sensor_perm, sensor_names_ordered = build_foot_permutation(feet_sensor_names)
-        robot_perm, robot_names_ordered = build_foot_permutation(feet_robot_names)
-        foot_names_canonical = robot_names_ordered
-        print(f"[INFO] Foot order (FL,FR,RL,RR) -> sensor bodies "
-              f"{sensor_names_ordered}, robot bodies {robot_names_ordered}")
+        feet_sensor_ids, feet_robot_ids, foot_names_canonical = adapter.foot_ids()
+        hip_robot_ids = adapter.hip_body_ids()
+        leg_joint_ids = adapter.leg_joint_ids()
+        if leg_joint_ids is None:
+            print("[WARN] joint names do not group per leg; the analyzer skips the asymmetry metrics.")
+        print(f"[INFO] Robot '{adapter.spec.name}': feet (FL,FR,RL,RR) -> {foot_names_canonical}")
 
         rec = {k: [] for k in (
             "root_pos_w", "root_quat_w", "root_lin_vel_b", "root_ang_vel_b",
-            "joint_pos", "joint_vel", "applied_torque", "actions", "commands",
-            "foot_forces_w", "feet_forces_max", "foot_pos_w", "foot_vel_w",
+            "joint_pos", "joint_vel", "applied_torque", "computed_torque", "actions", "commands",
+            "foot_forces_w", "feet_forces_max", "foot_pos_w", "foot_vel_w", "hip_pos_w",
             "dones", "time_outs", "terrain_levels", "terrain_types",
             "terrain_height_under_body", "base_height", "terrain_normal_b",
         )}
 
-        # Run D posture channel (optional): requires the terrain-relative helpers on
-        # the env. Older envs simply don't record it and the analyzer skips the
-        # posture.* metrics -- both directions are backward compatible.
-        has_posture = hasattr(raw_env, "_terrain_height_under_body") and hasattr(
-            raw_env, "_terrain_normal_b")
+        # Posture channel (optional): needs a height scanner. Tasks without one (flat
+        # tasks) simply don't record it and the analyzer skips the posture.* metrics.
+        has_posture = adapter.has_posture()
         if not has_posture:
-            print("[WARN] env has no terrain-relative posture helpers; "
+            print("[WARN] env has no height scanner; "
                   "skipping terrain_height_under_body / base_height / terrain_normal_b.")
 
         # Terrain bookkeeping availability
-        terrain = raw_env._terrain
-        has_terrain_levels = hasattr(terrain, "terrain_levels") and terrain.terrain_levels is not None
-        has_terrain_types = hasattr(terrain, "terrain_types") and terrain.terrain_types is not None
+        terrain = adapter.terrain
+        has_terrain_levels = getattr(terrain, "terrain_levels", None) is not None
+        has_terrain_types = getattr(terrain, "terrain_types", None) is not None
 
     # Statistics trackers
     total_episodes = 0
@@ -254,8 +334,30 @@ def main():
     failure_count = 0  # Early termination = crashed
     episode_lengths = []
 
+    robot = adapter.robot
+    contact = adapter.contact_sensor
     obs = env.get_observations()
+    step_index = 0
+    delayed_actions = None
+    if args_cli.benchmark and args_cli.profile == "real":
+        delayed_actions = torch.zeros((args_cli.num_envs, raw_env.action_space.shape[-1]), device=device)
     current_lengths = torch.zeros(args_cli.num_envs, device=device)
+    counted = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_fell = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_survived = torch.zeros(args_cli.num_envs, dtype=torch.bool, device=device)
+    first_length = torch.zeros(args_cli.num_envs, dtype=torch.long, device=device)
+    base_ids = adapter.base_sensor_ids()
+    try:
+        env_masses = adapter.robot.root_physx_view.get_masses().sum(dim=1).to(device)
+    except Exception:
+        env_masses = adapter.robot.data.default_mass.sum(dim=1).to(device)
+    fall_force_threshold = fall_force_bw() * env_masses * 9.81
+    if not base_ids:
+        print(f"[WARN] base body '{adapter.spec.base_body}' not in contact sensor; fall rule uses tilt only.")
+    if args_cli.full_episodes:
+        # Undo the reset-time episode-length randomization so every first episode is full length.
+        raw_env.episode_length_buf[:] = 0
+        print("[INFO] Full episodes: counting each env's first episode only.")
 
     # Benchmark mode: per-env episode clock driving the scripted command sequence.
     step_dt = float(raw_env.step_dt)
@@ -271,32 +373,50 @@ def main():
             # the env's own mid-episode resampling so the recorded command stays on
             # script (see benchmark_commands / --benchmark).
             if args_cli.benchmark:
-                raw_env._commands[:] = benchmark_commands(bench_clock, device)
-                raw_env._command_time_left[:] = 1.0e9
+                cmd = benchmark_commands(bench_clock, device)
+                cmd[:, :2] *= cmd_scale[0]
+                cmd[:, 2] *= cmd_scale[1]
+                adapter.set_commands(cmd)
+                adapter.freeze_command_resampling()
 
             actions = policy(obs)
+            if delayed_actions is not None:  # real profile: one control step of actuation delay
+                actions, delayed_actions = delayed_actions, actions
             obs, _, dones, infos = env.step(actions)
             current_lengths += 1
             if args_cli.benchmark:
                 bench_clock += step_dt
                 bench_clock[dones.bool()] = 0.0  # restart clock for reset envs
 
+            if video is not None and step_index < args_cli.video_length:
+                video.capture(step_index)
+            step_index += 1
+
             time_outs = infos.get("time_outs", torch.zeros_like(dones))
+
+            # Evaluator-side fall rule, identical for every robot (tasks terminate differently).
+            tilt = torch.acos(torch.clamp(-robot.data.projected_gravity_b[:, 2], -1.0, 1.0))
+            fallen_now = tilt > FALL_TILT_RAD
+            if base_ids:
+                base_force = torch.norm(contact.data.net_forces_w_history[:, :, base_ids], dim=-1)
+                fallen_now |= base_force.amax(dim=(1, 2)) > fall_force_threshold
+            first_fell |= fallen_now & ~counted & ~dones.bool()
 
             # --- record post-step state (done steps are marked; the analyzer
             #     drops those single post-reset samples per episode) ---
             if args_cli.record:
-                rec["root_pos_w"].append(raw_env._robot.data.root_pos_w.cpu().numpy())
-                rec["root_quat_w"].append(raw_env._robot.data.root_quat_w.cpu().numpy())
-                rec["root_lin_vel_b"].append(raw_env._robot.data.root_lin_vel_b.cpu().numpy())
-                rec["root_ang_vel_b"].append(raw_env._robot.data.root_ang_vel_b.cpu().numpy())
-                rec["joint_pos"].append(raw_env._robot.data.joint_pos.cpu().numpy())
-                rec["joint_vel"].append(raw_env._robot.data.joint_vel.cpu().numpy())
-                rec["applied_torque"].append(raw_env._robot.data.applied_torque.cpu().numpy())
+                rec["root_pos_w"].append(robot.data.root_pos_w.cpu().numpy())
+                rec["root_quat_w"].append(robot.data.root_quat_w.cpu().numpy())
+                rec["root_lin_vel_b"].append(robot.data.root_lin_vel_b.cpu().numpy())
+                rec["root_ang_vel_b"].append(robot.data.root_ang_vel_b.cpu().numpy())
+                rec["joint_pos"].append(robot.data.joint_pos.cpu().numpy())
+                rec["joint_vel"].append(robot.data.joint_vel.cpu().numpy())
+                rec["applied_torque"].append(robot.data.applied_torque.cpu().numpy())
+                rec["computed_torque"].append(robot.data.computed_torque.cpu().numpy())
                 rec["actions"].append(actions.cpu().numpy())
-                rec["commands"].append(raw_env.commands.cpu().numpy())
+                rec["commands"].append(adapter.get_commands().cpu().numpy())
                 rec["foot_forces_w"].append(
-                    raw_env._contact_sensor.data.net_forces_w[:, feet_sensor_ids].cpu().numpy())
+                    contact.data.net_forces_w[:, feet_sensor_ids].cpu().numpy())
                 # Substep-max contact force magnitude per foot (peak transient the
                 # policy-rate snapshot above misses). net_forces_w_history is
                 # (E, history_len, nbodies, 3); max the per-substep magnitude over
@@ -304,15 +424,16 @@ def main():
                 rec["feet_forces_max"].append(
                     torch.max(
                         torch.norm(
-                            raw_env._contact_sensor.data.net_forces_w_history[:, :, feet_sensor_ids],
+                            contact.data.net_forces_w_history[:, :, feet_sensor_ids],
                             dim=-1,
                         ),
                         dim=1,
                     )[0].cpu().numpy())
                 rec["foot_pos_w"].append(
-                    raw_env._robot.data.body_pos_w[:, feet_robot_ids].cpu().numpy())
+                    robot.data.body_pos_w[:, feet_robot_ids].cpu().numpy())
                 rec["foot_vel_w"].append(
-                    raw_env._robot.data.body_lin_vel_w[:, feet_robot_ids].cpu().numpy())
+                    robot.data.body_lin_vel_w[:, feet_robot_ids].cpu().numpy())
+                rec["hip_pos_w"].append(robot.data.body_pos_w[:, hip_robot_ids].cpu().numpy())
                 rec["dones"].append(dones.cpu().numpy().astype(np.uint8))
                 rec["time_outs"].append(time_outs.cpu().numpy().astype(np.uint8))
                 if has_terrain_levels:
@@ -323,16 +444,21 @@ def main():
                     # Run D posture channel: local ground reference under the trunk,
                     # the trunk height above it, and the fitted terrain-plane normal
                     # expressed in the body frame (analyzer -> posture.*).
-                    terrain_z = raw_env._terrain_height_under_body()
+                    terrain_z = adapter.terrain_height_under_body()
                     rec["terrain_height_under_body"].append(terrain_z.cpu().numpy())
                     rec["base_height"].append(
-                        (raw_env._height_scanner.data.pos_w[:, 2] - terrain_z).cpu().numpy())
-                    rec["terrain_normal_b"].append(raw_env._terrain_normal_b().cpu().numpy())
+                        (adapter.height_scanner.data.pos_w[:, 2] - terrain_z).cpu().numpy())
+                    rec["terrain_normal_b"].append(adapter.terrain_normal_b().cpu().numpy())
 
             if torch.any(dones):
                 done_indices = torch.nonzero(dones).flatten()
                 for idx in done_indices:
-                    is_timeout = time_outs[idx].item()
+                    if args_cli.full_episodes and counted[idx]:
+                        continue
+                    counted[idx] = True
+                    first_length[idx] = int(current_lengths[idx].item())
+                    first_survived[idx] = bool(time_outs[idx].item()) and not bool(first_fell[idx].item())
+                    is_timeout = first_survived[idx].item() if args_cli.benchmark else time_outs[idx].item()
                     if is_timeout:
                         success_count += 1
                     else:
@@ -345,6 +471,10 @@ def main():
             if total_episodes % 50 == 0 and total_episodes > 0:
                 print(f"Progress: {total_episodes}/{args_cli.num_episodes} | "
                       f"Success: {success_count / total_episodes * 100:.1f}%", end="\r")
+
+    if video is not None:
+        video.close()
+        print(f"[INFO] Video written: {video.path} ({video.frames} frames)")
 
     # Final report
     print("\n" + "=" * 50)
@@ -380,16 +510,16 @@ def main():
     # Write rollout.h5
     # ------------------------------------------------------------------
     if args_cli.record:
-        _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
-                       foot_names_canonical)
+        first = dict(fell=first_fell, survived=first_survived, length=first_length, cells=cells,
+                     leg_joint_ids=leg_joint_ids)
+        _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
 
     sys.stdout.flush()
     env.close()
 
 
-def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
-                   foot_names_canonical):
-    """Stack recorded buffers, reorder feet to FL/FR/RL/RR, and write rollout.h5."""
+def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first):
+    """Stack recorded buffers (feet already in FL/FR/RL/RR order) and write rollout.h5."""
     rollout_path = save_dir / "rollout.h5"
     print(f"\n[INFO] Writing rollout to {rollout_path} ...")
 
@@ -409,28 +539,35 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
     time_outs = stack("time_outs", dtype=np.uint8)
 
     # Feet: (T, E, 4, 3) reordered to FL, FR, RL, RR.
-    foot_forces_w = stack("foot_forces_w")[:, :, sensor_perm, :]
-    foot_pos_w = stack("foot_pos_w")[:, :, robot_perm, :]
-    foot_vel_w = stack("foot_vel_w")[:, :, robot_perm, :]
-    # Substep-max force magnitude: (T, E, 4) reordered by the sensor permutation.
-    feet_forces_max = stack("feet_forces_max")[:, :, sensor_perm]
+    foot_forces_w = stack("foot_forces_w")
+    foot_pos_w = stack("foot_pos_w")
+    foot_vel_w = stack("foot_vel_w")
+    # Substep-max force magnitude: (T, E, 4).
+    feet_forces_max = stack("feet_forces_max")
 
     T, E = root_pos_w.shape[0], root_pos_w.shape[1]
 
     # Robot mass (actual, post-randomization if available; else default).
     try:
-        masses = raw_env._robot.root_physx_view.get_masses().cpu().numpy()  # (E, nbodies)
+        masses = adapter.robot.root_physx_view.get_masses().cpu().numpy()  # (E, nbodies)
     except Exception:
-        masses = raw_env._robot.data.default_mass.cpu().numpy()
+        masses = adapter.robot.data.default_mass.cpu().numpy()
     robot_mass_per_env = masses.sum(axis=1).astype(np.float32)  # (E,)
     robot_mass = float(robot_mass_per_env.mean())
 
-    # Joint limits (authoritative values come from the actuator config).
-    actuator = list(env_cfg.robot.actuators.values())[0]
-    effort_limit = float(actuator.effort_limit)
-    velocity_limit = float(actuator.velocity_limit)
+    # Joint limits per joint, from the actuator models (inf where an actuator has no fixed
+    # limit, e.g. Spot's knees). The scalar attrs keep the largest finite value for older
+    # analyzer versions.
+    effort_limits, velocity_limits = adapter.joint_limits()
+    effort_limits = effort_limits.numpy().astype(np.float32)
+    velocity_limits = velocity_limits.numpy().astype(np.float32)
+    finite_effort = effort_limits[np.isfinite(effort_limits)]
+    finite_velocity = velocity_limits[np.isfinite(velocity_limits)]
+    effort_limit = float(finite_effort.max()) if finite_effort.size else float("inf")
+    velocity_limit = float(finite_velocity.max()) if finite_velocity.size else float("inf")
+    robot_data = adapter.robot.data
     try:
-        joint_pos_limits = raw_env._robot.data.joint_pos_limits[0].cpu().numpy().astype(np.float32)
+        joint_pos_limits = robot_data.joint_pos_limits[0].cpu().numpy().astype(np.float32)
     except Exception:
         joint_pos_limits = None
 
@@ -449,6 +586,8 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
         f.create_dataset("feet_forces_max", data=feet_forces_max, **gzip)
         f.create_dataset("foot_pos_w", data=foot_pos_w, **gzip)
         f.create_dataset("foot_vel_w", data=foot_vel_w, **gzip)
+        f.create_dataset("hip_pos_w", data=stack("hip_pos_w"), **gzip)
+        f.create_dataset("computed_torque", data=stack("computed_torque"), **gzip)
         f.create_dataset("dones", data=dones, **gzip)
         f.create_dataset("time_outs", data=time_outs, **gzip)
 
@@ -476,8 +615,23 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
         f.create_dataset("robot_mass_per_env", data=robot_mass_per_env)
         a["joint_effort_limit"] = effort_limit
         a["joint_velocity_limit"] = velocity_limit
-        a["joint_names"] = list(raw_env._robot.data.joint_names)
-        a["body_names"] = list(raw_env._robot.data.body_names)
+        a["joint_names"] = list(robot_data.joint_names)
+        a["body_names"] = list(robot_data.body_names)
+        a["robot_name"] = adapter.spec.name
+        a["env_type"] = type(adapter).__name__
+        f.create_dataset("joint_effort_limits", data=effort_limits)      # (J,)
+        f.create_dataset("joint_velocity_limits", data=velocity_limits)  # (J,)
+        f.create_dataset("default_joint_pos",
+                         data=robot_data.default_joint_pos[0].cpu().numpy().astype(np.float32))
+        f.create_dataset("knee_joint_idx", data=np.asarray(adapter.knee_joint_ids(), dtype=np.int32))
+        if first["leg_joint_ids"] is not None:
+            # (4, joints per leg) in FL, FR, RL, RR order -> asymmetry metrics in the analyzer.
+            f.create_dataset("leg_joint_idx", data=np.asarray(first["leg_joint_ids"], dtype=np.int32))
+        # Robot size for interpreting results across robots (leg length = thigh + shank).
+        thigh_len, shank_len = adapter.leg_segment_lengths()
+        f.create_dataset("leg_thigh_lengths", data=thigh_len.numpy().astype(np.float32))  # (4,)
+        f.create_dataset("leg_shank_lengths", data=shank_len.numpy().astype(np.float32))  # (4,)
+        a["leg_length"] = float((thigh_len + shank_len).mean())
         a["foot_order"] = "FL,FR,RL,RR"
         a["foot_body_names"] = list(foot_names_canonical)
         if joint_pos_limits is not None:
@@ -489,8 +643,25 @@ def _write_rollout(save_dir, rec, raw_env, env_cfg, sensor_perm, robot_perm,
         a["seed"] = int(args_cli.seed)
         a["num_episodes"] = int(args_cli.num_episodes)
         a["benchmark_mode"] = bool(args_cli.benchmark)
+        a["full_episodes"] = bool(args_cli.full_episodes)
+        a["profile"] = args_cli.profile if args_cli.benchmark else "task"
+        a["bench_terrain"] = args_cli.bench_terrain if args_cli.benchmark else "task"
+        a["bench_commands"] = args_cli.bench_commands if args_cli.benchmark else "task"
+        a["contact_history_length"] = int(adapter.contact_sensor.cfg.history_length)
+        a["fall_tilt_rad"] = FALL_TILT_RAD
+        a["fall_base_force_bw"] = fall_force_bw()
+        if args_cli.full_episodes:
+            f.create_dataset("first_episode_fell", data=first["fell"].cpu().numpy().astype(np.uint8))
+            f.create_dataset("first_episode_survived", data=first["survived"].cpu().numpy().astype(np.uint8))
+            f.create_dataset("first_episode_length", data=first["length"].cpu().numpy().astype(np.int32))
+        if first["cells"] is not None:
+            f.create_dataset("terrain_cell", data=np.asarray([c[:2] for c in first["cells"]], dtype=np.int16))
+            a["terrain_cell_kinds"] = [c[2] for c in first["cells"]]
         a["git_commit"] = get_git_suffix()
         a["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Last write, on purpose: the analyzer refuses a file without it. Isaac Sim exits 0 even
+        # after an exception, so a crash while writing this file looked like a successful run.
+        a["complete"] = True
 
     size_mb = rollout_path.stat().st_size / 1e6
     print(f"[INFO] rollout.h5 written: {T} steps x {E} envs ({size_mb:.1f} MB).")

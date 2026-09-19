@@ -15,8 +15,9 @@ train, evaluate, analyze and release locomotion and perception models.
   `conda activate <isaac-env>` and `source <IsaacLab>/_isaac_sim/setup_conda_env.sh`.
 - The robot model (USD) is not in the repository: set `MELDOG_USD_PATH` to the Meldog
   USD file, or copy it to `assets/robots/meldog/Meldog-1.4-no-ground-plane.usd`.
-- Isaac-free unit tests: `python tests/test_heightmap_transform.py` and
-  `python tests/test_elevation_mapper.py`.
+- Isaac-free unit tests: `python tests/test_heightmap_transform.py`,
+  `python tests/test_elevation_mapper.py`, `python tests/test_robot_specs.py` and
+  `python tests/test_benchmark_terrains.py`.
 
 ## 1. Locomotion Tasks
 
@@ -138,6 +139,56 @@ python scripts/locomotion/evaluate_locomotion.py \
     --checkpoint releases/locomotion/v1.0-rough/model.pt \
     --benchmark --num_envs 16 --num_episodes 16 --headless
 ```
+
+- `--full_episodes`: count only each env's first episode and start it at step 0. Meldog's
+  env randomizes episode length on reset, so otherwise most episodes are shorter than 20 s.
+  Every env then runs a full-length episode unless it falls, and `--num_episodes` is set to
+  `--num_envs`. **Always on in benchmark mode.** Survival rates from before this change
+  (benchmarks recorded before 2026-09-15) are not comparable.
+- In benchmark mode every robot is evaluated under the same conditions, whatever its task
+  was trained with:
+  - `--profile clean` (default): no observation noise, no pushes or mass randomization,
+    nominal friction (0.8 / 0.6), reset at the default pose with yaw 0, terrain curriculum off.
+  - `--profile real`: `clean` plus uniform observation noise (lin vel ±0.1 m/s, ang vel
+    ±0.2 rad/s, gravity ±0.05, joint pos ±0.01 rad, joint vel ±1.5 rad/s, height scan ±0.1 m),
+    friction 0.4-1.2 / 0.3-1.0, trunk mass ±10 %, velocity pushes of ±0.5 m/s every 10-15 s,
+    motor strength ×0.8-1.2 per robot and one control step of actuation delay.
+  - The contact sensor keeps every physics substep (history = decimation). A fall is trunk tilt
+    above 1.0 rad, or fatal trunk contact: most environments (Meldog's and every Isaac Lab
+    velocity task) terminate the episode themselves above 1 N, and where an environment has no
+    such rule the evaluator falls back to 20 % of body weight (`--fall_base_force_bw`).
+- `--bench_terrain task|flat|rough|obs|rough_obs` (default `task`): `task` keeps the task's own
+  terrain; the others are Meldog's shared terrains (`rough` = the Rough task generator, `obs` /
+  `rough_obs` = the FlatObs / RoughObs generators with tall obstacles and walls). Each env gets a
+  fixed terrain cell: every sub-terrain kind at difficulty rows 0, 3, 6 and 9. The report then
+  shows survival per terrain kind and row.
+- `--output_root DIR`: create the evaluation folder inside `DIR` instead of `logs/locomotion`.
+- `--num_envs` defaults to **192 in benchmark mode** (8 robots per terrain cell). With fewer envs the
+  survival rate on hard terrain varies by about ±0.1 between runs; the other metrics are stable.
+- `--bench_commands absolute|froude`: `absolute` (default) gives every robot the same speeds;
+  `froude` scales them with the square root of leg length relative to Meldog's 0.50 m, so robots of
+  different size are compared at dynamically similar speeds.
+- `--video [--video_length 400] [--video_env 0]`: record the run with a third-person camera that
+  follows one robot, into `video/` inside the evaluation folder. The robot's own perception cameras
+  stay off unless you also pass `--enable_cameras`.
+
+### E. Reference robots (Isaac Lab quadrupeds)
+The same evaluator runs the Isaac Lab velocity tasks, so their policies are measured exactly
+like Meldog's. Supported robots: ANYmal-B/C/D, Unitree Go1/Go2/A1 and Spot
+(`Isaac-Velocity-{Flat,Rough}-<Robot>-v0`, plus the direct `Isaac-Velocity-*-Anymal-C-Direct-v0`).
+```bash
+python scripts/locomotion/evaluate_locomotion.py \
+    --task Isaac-Velocity-Rough-Unitree-Go2-v0 \
+    --checkpoint <IsaacLab>/logs/rsl_rl/unitree_go2_rough/<run>/model_1499.pt \
+    --benchmark --full_episodes --num_envs 16 --headless
+```
+- Output folders are named `LE_ref_<robot>_<flat|rough>_*`.
+- Foot, knee, hip and shank bodies of each robot are defined in
+  `source/meldog_rl/eval/robot_specs.py`; add an entry there to support another robot.
+- Every recording stores the robot's size and limits so results can be interpreted per robot:
+  mass, per-leg thigh and shank lengths (`leg_length`), per-joint effort and velocity limits,
+  default joint pose and knee joint indices.
+- Tasks without a height scanner (all flat tasks) record no posture channel.
 
 ---
 
@@ -264,7 +315,15 @@ python scripts/perception/analyze_perception.py MODEL.h5 [SLAM.h5] \
     --labels model slam            # [-o DIR] [--env N] [--timesteps 50 200 500 950]
 ```
 
-### C. What an evaluation run produces
+### C. Comparing runs (`compare_metrics.py`)
+Prints one Markdown table of the key metrics and flags for any number of evaluations, sorted
+by robot mass, with robot name and leg length.
+```bash
+python scripts/locomotion/compare_metrics.py logs/locomotion/LE_a logs/locomotion/LE_b \
+    [--output comparison.md] [--csv comparison.csv]
+```
+
+### D. What an evaluation run produces
 
 | File | Purpose |
 | :--- | :--- |

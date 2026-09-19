@@ -13,7 +13,8 @@ per-file-ignores=*/__init__.py:F401
 # SIM117: Merge with statements for context managers that have same scope.
 # SIM118: Checks for key-existence checks against dict.keys() calls.
 ignore=E402,E501,W503,E203,D401,R504,R505,SIM102,SIM117,SIM118
-max-line-length = 120
+# black owns wrapping; E501 stays in the ignore list above for unsplittable strings/URLs
+max-line-length = 100
 max-complexity = 30
 exclude=_*,.vscode,.git,docs/**
 # docstrings

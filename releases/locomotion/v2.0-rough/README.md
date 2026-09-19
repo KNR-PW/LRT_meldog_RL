@@ -31,6 +31,33 @@ On our machine the benchmark is deterministic: the 2026-07-27 run and several ru
 
 Known gaps: body pitch relative to terrain not corrected (squared posture penalties cause leg-bracing; a deadband is the proposed fix), higher energy use and torque saturation than v1.0-rough, and the impact metric under-reports.
 
+## Benchmark under the updated conditions (2026-09-19)
+The benchmark above used randomly truncated episodes (most shorter than 20 s), so its survival
+rate overstates robustness. Re-measured with the current benchmark: full 20 s episodes, the same
+fall rule for every robot (see `docs/evaluation.md`), `--profile clean`, Meldog's shared terrains
+with fixed terrain cells,
+192 envs, one env per terrain cell so every difficulty row and obstacle kind is walked.
+The reference range is the minimum-maximum over six published Isaac Lab rough policies
+(ANYmal-B/C/D, Go1, Go2, A1; see `docs/evaluation.md`).
+
+| metric (shared rough terrain) | v2.0-rough | v1.0-rough | reference range |
+|---|---|---|---|
+| survival_rate | 0.60 | 1.00 | 0.89-1.00 |
+| tracking.lin_err (m/s) | 0.086 | 0.037 | 0.045-0.075 |
+| tracking.ang_err (rad/s) | 0.245 | 0.224 | 0.06-0.18 |
+| gait.phase_offset (FR, RL, RR vs FL) | 0.51, 0.51, 0.02 | 0.65, 0.29, 0.62 | ≈0.5, 0.5, 0.0-0.1 |
+| gait.stride_freq (Hz) | 1.72 | 1.12 | 1.68-2.37 |
+| posture.pitch_terrain_rel_std (rad) | 0.202 | 0.093 | 0.025-0.070 |
+| impact.peak_force_bw_p95 (BW) | 0.87 | 0.73 | 0.91-1.77 |
+| actuator.torque_sat_pct (%) | 7.9 | 1.3 | 0.01-0.34 |
+| energy.cost_of_transport | 0.86 | 0.72 | 0.48-1.16 |
+
+On the shared rough terrain v2.0-rough falls almost only on stairs: averaged over the ten
+difficulty rows it survives 23 % of episodes on descending stairs and 33 % on ascending stairs,
+against 97-100 % on random rough ground, slopes and boxes. v1.0-rough survives every episode on
+every kind and row. On flat terrain both versions survive every episode. (Each terrain cell holds
+3-4 envs, so a single cell's rate is coarse; the per-kind averages are not.)
+
 ## Usage
 Run inside your Isaac Lab environment (see `docs/manual.md`):
 ```bash

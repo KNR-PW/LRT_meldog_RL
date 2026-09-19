@@ -1,0 +1,14 @@
+# Tool configuration only. There is deliberately no [build-system] table: the package is still
+# built from setup.py, and leaving it out keeps pip on exactly the path it used before this file
+# existed (PEP 517 legacy fallback).
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+extend-exclude = "/(_.*|logs|datasets|literature|agentic)/"
+
+[tool.isort]
+profile = "black"          # black-compatible wrapping, trailing commas
+line_length = 100
+known_first_party = ["meldog_rl"]
+skip_glob = ["_*", "logs/*", "datasets/*", "agentic/*"]
