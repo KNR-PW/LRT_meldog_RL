@@ -93,6 +93,9 @@ parser.add_argument(
     "--video", action="store_true",
     help="Record a video: four chase cameras on four robots, tiled 2x2, into the eval folder.",
 )
+parser.add_argument("--fall_base_force_bw", type=float, default=None,
+                    help="Trunk contact force counting as a fall, in body weights (default 0.2). "
+                         "Only binds for envs without their own base-contact termination.")
 parser.add_argument("--video_length", type=int, default=500,
                     help="Video length in simulation steps (500 steps = 10 s at 50 Hz).")
 parser.add_argument("--video_envs", type=int, nargs="*", default=None,
@@ -167,7 +170,17 @@ from meldog_rl.utils.git_utils import get_git_suffix
 # Contact detection threshold (Newtons) -- matches the env's contact visualization.
 CONTACT_FORCE_THRESHOLD = 1.0
 FALL_TILT_RAD = 1.0            # trunk tilt that counts as a fall
-FALL_BASE_FORCE_BW = 0.2       # trunk contact force that counts as a fall, in body weights.
+# Trunk contact force that counts as a fall, in body weights (override with --fall_base_force_bw).
+# This rule is a BACKSTOP, not a shared rule: Meldog's env and every Isaac Lab velocity env
+# terminate the episode themselves as soon as the trunk touches anything with more than 1 N, long
+# before this threshold. It therefore only decides the outcome for envs without such a termination
+# (robot_lab), whose survival numbers are measured under a more permissive rule than the others.
+FALL_BASE_FORCE_BW = 0.2
+
+
+def fall_force_bw() -> float:
+    """Threshold actually in force for this run; module level because the rollout writer needs it."""
+    return FALL_BASE_FORCE_BW if args_cli.fall_base_force_bw is None else args_cli.fall_base_force_bw
 # A fixed 1 N counted a brush as a fall: policies trained without contact termination walk with
 # the trunk low and touch obstacles constantly without ever falling (robot_lab ANYmal-D walks at
 # 0.23 m trunk height and touched something in 191 of 192 envs).
@@ -338,7 +351,7 @@ def main():
         env_masses = adapter.robot.root_physx_view.get_masses().sum(dim=1).to(device)
     except Exception:
         env_masses = adapter.robot.data.default_mass.sum(dim=1).to(device)
-    fall_force_threshold = FALL_BASE_FORCE_BW * env_masses * 9.81
+    fall_force_threshold = fall_force_bw() * env_masses * 9.81
     if not base_ids:
         print(f"[WARN] base body '{adapter.spec.base_body}' not in contact sensor; fall rule uses tilt only.")
     if args_cli.full_episodes:
@@ -636,7 +649,7 @@ def _write_rollout(save_dir, rec, raw_env, adapter, foot_names_canonical, first)
         a["bench_commands"] = args_cli.bench_commands if args_cli.benchmark else "task"
         a["contact_history_length"] = int(adapter.contact_sensor.cfg.history_length)
         a["fall_tilt_rad"] = FALL_TILT_RAD
-        a["fall_base_force_bw"] = FALL_BASE_FORCE_BW
+        a["fall_base_force_bw"] = fall_force_bw()
         if args_cli.full_episodes:
             f.create_dataset("first_episode_fell", data=first["fell"].cpu().numpy().astype(np.uint8))
             f.create_dataset("first_episode_survived", data=first["survived"].cpu().numpy().astype(np.uint8))

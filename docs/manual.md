@@ -153,9 +153,10 @@ python scripts/locomotion/evaluate_locomotion.py \
     ±0.2 rad/s, gravity ±0.05, joint pos ±0.01 rad, joint vel ±1.5 rad/s, height scan ±0.1 m),
     friction 0.4-1.2 / 0.3-1.0, trunk mass ±10 %, velocity pushes of ±0.5 m/s every 10-15 s,
     motor strength ×0.8-1.2 per robot and one control step of actuation delay.
-  - The contact sensor keeps every physics substep (history = decimation), and a fall is
-    counted the same way for every robot: trunk contact force above 1 N or trunk tilt above
-    1.0 rad.
+  - The contact sensor keeps every physics substep (history = decimation). A fall is trunk tilt
+    above 1.0 rad, or fatal trunk contact: most environments (Meldog's and every Isaac Lab
+    velocity task) terminate the episode themselves above 1 N, and where an environment has no
+    such rule the evaluator falls back to 20 % of body weight (`--fall_base_force_bw`).
 - `--bench_terrain task|flat|rough|obs|rough_obs` (default `task`): `task` keeps the task's own
   terrain; the others are Meldog's shared terrains (`rough` = the Rough task generator, `obs` /
   `rough_obs` = the FlatObs / RoughObs generators with tall obstacles and walls). Each env gets a

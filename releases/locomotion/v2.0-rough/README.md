@@ -34,7 +34,8 @@ Known gaps: body pitch relative to terrain not corrected (squared posture penalt
 ## Benchmark under the updated conditions (2026-09-19)
 The benchmark above used randomly truncated episodes (most shorter than 20 s), so its survival
 rate overstates robustness. Re-measured with the current benchmark: full 20 s episodes, the same
-fall rule for every robot, `--profile clean`, Meldog's shared terrains with fixed terrain cells,
+fall rule for every robot (see `docs/evaluation.md`), `--profile clean`, Meldog's shared terrains
+with fixed terrain cells,
 192 envs, one env per terrain cell so every difficulty row and obstacle kind is walked.
 The reference range is the minimum-maximum over six published Isaac Lab rough policies
 (ANYmal-B/C/D, Go1, Go2, A1; see `docs/evaluation.md`).

@@ -184,6 +184,11 @@ def compute_flags(meta, loco):
         put("attitude.pitch_mean", _flag_abs_lt(at["pitch_mean"], 0.03, 0.07))
         put("attitude.roll_std", _flag_lt(at["roll_std"], 0.05, 0.10))
         put("attitude.pitch_std", _flag_lt(at["pitch_std"], 0.05, 0.10))
+        if po.get("pitch_terrain_rel_std") is not None:
+            # On flat ground the two are the same measurement; flag both so the metric the
+            # comparison table reads (posture.*) is never silently unflagged.
+            put("posture.roll_terrain_rel_std", _flag_lt(po["roll_terrain_rel_std"], 0.05, 0.10))
+            put("posture.pitch_terrain_rel_std", _flag_lt(po["pitch_terrain_rel_std"], 0.05, 0.10))
     else:
         put("posture.roll_terrain_rel_mean", _flag_abs_lt(po["roll_terrain_rel_mean"], 0.03, 0.07))
         put("posture.pitch_terrain_rel_mean", _flag_abs_lt(po["pitch_terrain_rel_mean"], 0.03, 0.07))
@@ -286,7 +291,14 @@ def resolve_k_idx(attrs, data=None):
     if data is not None and "knee_joint_idx" in data:
         return [int(i) for i in data["knee_joint_idx"]]
     idx = k_joint_indices_by_foot(_decode_str_list(attrs.get("joint_names")))
-    return idx if idx is not None else list(K_JOINT_IDX_FALLBACK)
+    if idx is None:
+        # Meldog's own layout. For any other robot these indices point at arbitrary joints, so the
+        # knee metrics below would be quietly meaningless: say so instead of pretending.
+        print("[WARN] no knee joints matched the robot's joint names; falling back to Meldog's "
+              f"indices {list(K_JOINT_IDX_FALLBACK)}. Knee metrics (swing.knee_excursion) are only "
+              "meaningful if this robot shares Meldog's joint order.")
+        return list(K_JOINT_IDX_FALLBACK)
+    return idx
 
 
 def resolve_knee_defaults(data, k_idx):
@@ -364,6 +376,25 @@ def aggregate(values):
     return {"mean": float(np.mean(arr)), "std": float(np.std(arr))}
 
 
+def aggregate_circular(values, length):
+    """Like ``aggregate_array`` but for cycle fractions in [0, 1).
+
+    Phase offsets wrap: 0.98 and 0.02 are 0.04 apart, not 0.96. A linear mean of those two returns
+    0.50 and turns a trot into a pace, so the mean is taken on the unit circle and the spread is
+    the circular standard deviation (also in cycles).
+    """
+    rows = [np.asarray(v, dtype=float) for v in values if v is not None]
+    if not rows:
+        return None
+    angles = np.vstack(rows) * 2.0 * np.pi
+    sin_mean = np.nanmean(np.sin(angles), axis=0)
+    cos_mean = np.nanmean(np.cos(angles), axis=0)
+    mean = (np.arctan2(sin_mean, cos_mean) / (2.0 * np.pi)) % 1.0
+    resultant = np.clip(np.hypot(sin_mean, cos_mean), 1e-12, 1.0)
+    std = np.sqrt(-2.0 * np.log(resultant)) / (2.0 * np.pi)
+    return {"mean": [float(x) for x in mean], "std": [float(x) for x in std]}
+
+
 def aggregate_array(values, length):
     """{'mean':[..],'std':[..]} over a list of equal-length arrays (skipping None)."""
     rows = [np.asarray(v, dtype=float) for v in values if v is not None]
@@ -393,9 +424,11 @@ def load_rollout(path: Path):
     attrs = data["_attrs"]
     missing = []
     if attrs.get("benchmark_mode", False):
-        # 'complete' is the evaluator's last write; rollouts recorded before it existed end with
-        # 'date' instead, which is written immediately before it.
-        if not attrs.get("complete", False) and "date" not in attrs:
+        # 'complete' is the evaluator's last write. Rollouts recorded before that attribute existed
+        # end with 'date' instead, and 'date' is written after every dataset, so such a file is
+        # materially complete; accept it only when the payload checked below is there too.
+        legacy = "date" in attrs and "first_episode_survived" in data
+        if not attrs.get("complete", False) and not legacy:
             missing.append("attribute 'complete' (written last by the evaluator)")
         if attrs.get("full_episodes", False) and "first_episode_survived" not in data:
             missing.append("dataset 'first_episode_survived'")
@@ -490,11 +523,16 @@ def episode_metrics(data, seg, effort_limit, vel_limit, dt, k_idx):
     m["stride_ref_foot"] = ref_foot
     if period is not None:
         m["stride_freq"] = 1.0 / (period * dt)
-        offs = []
-        for fi in (1, 2, 3):  # FR, RL, RR
-            po = phase_offset_xcorr(contact[:, 0].astype(float), contact[:, fi].astype(float), period)
-            offs.append(po)
-        m["phase_offset"] = None if any(o is None for o in offs) else np.array(offs)
+        # Correlate against the foot with the cleanest cycle (the one the period came from), then
+        # express the result relative to FL so the reported labels stay "FR, RL, RR vs FL". Using
+        # FL directly gives degraded offsets exactly when FL is the foot with erratic contact.
+        ref_signal = contact[:, ref_foot].astype(float)
+        offs_ref = [phase_offset_xcorr(ref_signal, contact[:, fi].astype(float), period)
+                    for fi in range(4)]
+        if any(o is None for o in offs_ref):
+            m["phase_offset"] = None
+        else:
+            m["phase_offset"] = np.array([(offs_ref[fi] - offs_ref[0]) % 1.0 for fi in (1, 2, 3)])
     else:
         m["stride_freq"] = None
         m["phase_offset"] = None
@@ -715,7 +753,7 @@ def build_metrics(data, segments):
             "duty_factor": aggregate_array(col("duty_factor"), 4),
             "duty_factor_spread": aggregate(col("duty_factor_spread")),
             "phase_offset_labels": PHASE_LABELS,
-            "phase_offset": aggregate_array(col("phase_offset"), 3),
+            "phase_offset": aggregate_circular(col("phase_offset"), 3),
             "stride_freq": aggregate(col("stride_freq")),
             "cycle_detected_frac": (n_cycle / len(per_ep)) if per_ep else None,
             "stride_ref_foot": _most_common_foot(col("stride_ref_foot")),
