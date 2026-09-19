@@ -16,10 +16,10 @@ simulation_app = app_launcher.app
 
 from meldog_rl.agents import MeldogPPORunnerCfg
 
-print("\nConfig class:", type(cfg).__name__)
-
 cfg = MeldogPPORunnerCfg()
 cfg_dict = cfg.to_dict()
+
+print("\nConfig class:", type(cfg).__name__)
 
 print("Top-level keys:", list(cfg_dict.keys()))
 
