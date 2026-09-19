@@ -12,10 +12,10 @@ import torch.nn as nn
 
 class VoxelSparse(nn.Module):
     """3D Voxel prediction using sparse convolutions.
-    
+
     TODO: Implement based on volumetric representation papers
     """
-    
+
     def __init__(
         self,
         num_cameras: int = 4,
@@ -26,21 +26,21 @@ class VoxelSparse(nn.Module):
         self.num_cameras = num_cameras
         self.voxel_size = voxel_size
         self.grid_size = grid_size
-        
+
         # TODO: Implement using MinkowskiEngine or TorchSparse
         raise NotImplementedError("Implement 3D voxel model")
-    
+
     def forward(
         self,
         depth_images: torch.Tensor,
         camera_poses: torch.Tensor,
     ) -> torch.Tensor:
         """Forward pass.
-        
+
         Args:
             depth_images: (B, num_cameras, H, W) depth images
             camera_poses: (B, num_cameras, 4, 4) camera extrinsics
-            
+
         Returns:
             voxel_grid: (B, X, Y, Z) occupancy/height voxel grid
         """

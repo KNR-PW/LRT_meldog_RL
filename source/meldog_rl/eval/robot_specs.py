@@ -78,28 +78,125 @@ def canonical_order(names: list[str], name_order: str) -> list[int] | None:
 
 
 ROBOT_SPECS: tuple[RobotSpec, ...] = (
-    RobotSpec("meldog", r"^Meldog-", "trunk_link", r".*F_link", r".*K_joint", r".*UL_link", r".*LL_link", "side_end"),
-    RobotSpec("anymal_b", r"Anymal-B", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
-    RobotSpec("anymal_c", r"Anymal-C", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
-    RobotSpec("anymal_d", r"Anymal-D", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"),
-    RobotSpec("go1", r"Unitree-Go1", "(trunk|base)", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
-    RobotSpec("go2", r"Unitree-Go2", "base", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
-    RobotSpec("a1", r"Unitree-A1", "(trunk|base)", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
+    RobotSpec(
+        "meldog",
+        r"^Meldog-",
+        "trunk_link",
+        r".*F_link",
+        r".*K_joint",
+        r".*UL_link",
+        r".*LL_link",
+        "side_end",
+    ),
+    RobotSpec(
+        "anymal_b", r"Anymal-B", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"
+    ),
+    RobotSpec(
+        "anymal_c", r"Anymal-C", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"
+    ),
+    RobotSpec(
+        "anymal_d", r"Anymal-D", "base", r".*_FOOT", r".*_KFE", r".*_THIGH", r".*_SHANK", "side_end"
+    ),
+    RobotSpec(
+        "go1",
+        r"Unitree-Go1",
+        "(trunk|base)",
+        r".*_foot",
+        r".*_calf_joint",
+        r".*_thigh",
+        r".*_calf",
+        "end_side",
+    ),
+    RobotSpec(
+        "go2",
+        r"Unitree-Go2",
+        "base",
+        r".*_foot",
+        r".*_calf_joint",
+        r".*_thigh",
+        r".*_calf",
+        "end_side",
+    ),
+    RobotSpec(
+        "a1",
+        r"Unitree-A1",
+        "(trunk|base)",
+        r".*_foot",
+        r".*_calf_joint",
+        r".*_thigh",
+        r".*_calf",
+        "end_side",
+    ),
     RobotSpec("spot", r"-Spot-", "body", r".*_foot", r".*_kn", r".*_uleg", r".*_lleg", "end_side"),
     # robot_lab quadrupeds (URDF link names)
-    RobotSpec("b2", r"Unitree-B2", "base_link", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
-    RobotSpec("lite3", r"Deeprobotics-Lite3", "TORSO", r".*_FOOT", r".*_Knee_joint", r".*_THIGH", r".*_SHANK", "end_side"),
-    RobotSpec("d1", r"Agibot-D1", "BASE_LINK", r".*_FOOT_LINK", r".*_KNEE_JOINT", r".*_HIP_LINK", r".*_KNEE_LINK", "end_side"),
-    RobotSpec("zsl1", r"Zsibot-ZSL1", "BASE_LINK", r".*_FOOT_LINK", r".*_KNEE_JOINT", r".*_HIP_LINK", r".*_KNEE_LINK", "end_side"),
-    RobotSpec("magicdog", r"MagicLab-Dog", "base", r".*_foot", r".*_calf_joint", r".*_thigh", r".*_calf", "end_side"),
+    RobotSpec(
+        "b2",
+        r"Unitree-B2",
+        "base_link",
+        r".*_foot",
+        r".*_calf_joint",
+        r".*_thigh",
+        r".*_calf",
+        "end_side",
+    ),
+    RobotSpec(
+        "lite3",
+        r"Deeprobotics-Lite3",
+        "TORSO",
+        r".*_FOOT",
+        r".*_Knee_joint",
+        r".*_THIGH",
+        r".*_SHANK",
+        "end_side",
+    ),
+    RobotSpec(
+        "d1",
+        r"Agibot-D1",
+        "BASE_LINK",
+        r".*_FOOT_LINK",
+        r".*_KNEE_JOINT",
+        r".*_HIP_LINK",
+        r".*_KNEE_LINK",
+        "end_side",
+    ),
+    RobotSpec(
+        "zsl1",
+        r"Zsibot-ZSL1",
+        "BASE_LINK",
+        r".*_FOOT_LINK",
+        r".*_KNEE_JOINT",
+        r".*_HIP_LINK",
+        r".*_KNEE_LINK",
+        "end_side",
+    ),
+    RobotSpec(
+        "magicdog",
+        r"MagicLab-Dog",
+        "base",
+        r".*_foot",
+        r".*_calf_joint",
+        r".*_thigh",
+        r".*_calf",
+        "end_side",
+    ),
 )
 
 
 # Approximate nominal masses (model files), used only to size the ``real`` profile's mass change.
 NOMINAL_MASS_KG = {
-    "meldog": 21.5, "anymal_b": 30.4, "anymal_c": 52.1, "anymal_d": 57.0,
-    "go1": 13.1, "go2": 15.5, "a1": 13.7, "spot": 32.5,
-    "b2": 74.6, "lite3": 11.9, "d1": 15.2, "zsl1": 15.2, "magicdog": 15.9,
+    "meldog": 21.5,
+    "anymal_b": 30.4,
+    "anymal_c": 52.1,
+    "anymal_d": 57.0,
+    "go1": 13.1,
+    "go2": 15.5,
+    "a1": 13.7,
+    "spot": 32.5,
+    "b2": 74.6,
+    "lite3": 11.9,
+    "d1": 15.2,
+    "zsl1": 15.2,
+    "magicdog": 15.9,
 }
 
 
@@ -108,4 +205,6 @@ def find_robot_spec(task: str) -> RobotSpec:
     for spec in ROBOT_SPECS:
         if re.search(spec.task_regex, task):
             return spec
-    raise KeyError(f"No robot spec matches task '{task}'. Add one to meldog_rl/eval/robot_specs.py.")
+    raise KeyError(
+        f"No robot spec matches task '{task}'. Add one to meldog_rl/eval/robot_specs.py."
+    )

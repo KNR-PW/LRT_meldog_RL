@@ -30,13 +30,13 @@ class RoughSimV2Cfg(RoughSimCfg):
     # air_time_variance), whose kernels kept finding degenerate optima
     # (diagonal limp, shuffle-in-place).
     foot_slip_reward_scale = -0.5
-    contact_schedule_reward_scale = 2.0        # Run C: match contacts to the clock
+    contact_schedule_reward_scale = 2.0  # Run C: match contacts to the clock
     # Run D3: raise foot lift. Measurement showed the human-visible "low to the
     # ground" defect is FOOT LIFT, not body height -- v1.0-rough lifts its feet
     # 14.3 cm (p50) vs run C's 5-8 cm apex, while both stand at the same 0.30 m.
     # Scale 0.5 -> 2.0 with std 0.05 makes a 5 cm clearance shortfall cost ~0.2/step,
     # ~15 % of the +1.3/step contact_schedule.
-    foot_clearance_reward_scale = 2.0          # terrain-relative, swing-window form
+    foot_clearance_reward_scale = 2.0  # terrain-relative, swing-window form
     # Target is the foot BODY ORIGIN height above terrain; that origin sits ~3.6 cm
     # above ground in contact (collision radius), so the old 0.08 asked for only
     # ~4.4 cm of real clearance. 0.13 -> ~9.4 cm, near v1.0-rough's measured ~10.7.
@@ -58,24 +58,24 @@ class RoughSimV2Cfg(RoughSimCfg):
     # instantaneous height penalty fights a dynamic gait, whose body height must
     # oscillate. It was also solving a non-problem: run C already matched the
     # v1.0-rough baseline height (0.300 vs 0.299).
-    base_height_reward_scale = 0.0             # target = cfg.base_height_target (0.34 m)
+    base_height_reward_scale = 0.0  # target = cfg.base_height_target (0.34 m)
 
     # Retuned command / gait shaping
-    feet_air_time_reward_scale = 0.0           # Run A2: was 0.5 (subsidized diagonal-float exploit)
-    yaw_rate_reward_scale = 1.5                # was 0.7 (parity with linear tracking)
-    flat_orientation_reward_scale = 0.0        # Run D: replaced by flat_orientation_terrain
+    feet_air_time_reward_scale = 0.0  # Run A2: was 0.5 (subsidized diagonal-float exploit)
+    yaw_rate_reward_scale = 1.5  # was 0.7 (parity with linear tracking)
+    flat_orientation_reward_scale = 0.0  # Run D: replaced by flat_orientation_terrain
 
     # Behavior flags
-    air_time_gate_full_cmd = True              # gate air-time on the full 3-dim command
-    pure_rotation_fraction = 0.2               # 20% of resamples are turn-in-place
-    gait_clock = True                          # Run C: phase clock + [sin, cos] obs
-    observation_space = 237                    # 235 + 2 clock observations
+    air_time_gate_full_cmd = True  # gate air-time on the full 3-dim command
+    pure_rotation_fraction = 0.2  # 20% of resamples are turn-in-place
+    gait_clock = True  # Run C: phase clock + [sin, cos] obs
+    observation_space = 237  # 235 + 2 clock observations
 
     # Run B robustness package
-    reset_randomization = True                 # yaw/joint/velocity noise at reset (inline)
-    obs_noise = True                           # additive uniform obs noise (Go2 values)
-    events: V2EventCfg = V2EventCfg()          # base randomization + periodic pushes
-    action_scale = 0.25                        # was 0.3
+    reset_randomization = True  # yaw/joint/velocity noise at reset (inline)
+    obs_noise = True  # additive uniform obs noise (Go2 values)
+    events: V2EventCfg = V2EventCfg()  # base randomization + periodic pushes
+    action_scale = 0.25  # was 0.3
 
     def __post_init__(self):
         # Post init of parent (terrain generator tuning)
@@ -130,10 +130,10 @@ class RoughSimV2D1Cfg(RoughSimV2Cfg):
     dropped the body to 0.246 m (D1: 0.270, baseline: 0.299).
     """
 
-    foot_clearance_reward_scale = 0.5          # D3 used 2.0 -> over-optimized, vibrated
-    foot_clearance_target = 0.08               # D3 used 0.13
-    flat_orientation_terrain_reward_scale = -1.0   # D3/D4 use -8.0 / -14.0
-    base_height_reward_scale = -2.0            # D3/D4 have this off
+    foot_clearance_reward_scale = 0.5  # D3 used 2.0 -> over-optimized, vibrated
+    foot_clearance_target = 0.08  # D3 used 0.13
+    flat_orientation_terrain_reward_scale = -1.0  # D3/D4 use -8.0 / -14.0
+    base_height_reward_scale = -2.0  # D3/D4 have this off
 
 
 @configclass

@@ -4,8 +4,8 @@
 """Sim-to-Real environment configs (aggressive domain randomization)."""
 
 from .flat_cfg import FlatRealCfg
-from .rough_cfg import RoughRealCfg
 from .flat_obs_cfg import FlatObsRealCfg
+from .rough_cfg import RoughRealCfg
 from .rough_obs_cfg import RoughObsRealCfg
 
 __all__ = ["FlatRealCfg", "RoughRealCfg", "FlatObsRealCfg", "RoughObsRealCfg"]

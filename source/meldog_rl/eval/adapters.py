@@ -14,11 +14,8 @@ Usage: ``adapter = make_adapter(task)``, then ``adapter.configure_cfg(...)`` bef
 
 from __future__ import annotations
 
-import re
-
 import gymnasium as gym
 import torch
-
 from isaaclab.utils.math import quat_apply_inverse
 
 from .robot_specs import RobotSpec, canonical_order, find_robot_spec
@@ -44,7 +41,7 @@ def load_cfgs(task: str, agent_entry_point: str = "rsl_rl_cfg_entry_point"):
     return env_cfg, agent_cfg
 
 
-def make_adapter(task: str) -> "EnvAdapter":
+def make_adapter(task: str) -> EnvAdapter:
     """The adapter matching how ``task`` is registered."""
     spec = find_robot_spec(task)
     if is_manager_based(task):
@@ -108,8 +105,9 @@ class EnvAdapter:
         self.env = None
 
     # -- before env creation ------------------------------------------------
-    def configure_cfg(self, env_cfg, num_envs: int, seed: int, device: str, enable_cameras: bool,
-                      benchmark: bool) -> None:
+    def configure_cfg(
+        self, env_cfg, num_envs: int, seed: int, device: str, enable_cameras: bool, benchmark: bool
+    ) -> None:
         env_cfg.scene.num_envs = num_envs
         env_cfg.seed = seed
         env_cfg.sim.device = device
@@ -213,9 +211,12 @@ class EnvAdapter:
 
     def foot_ids(self):
         """(sensor ids, robot body ids, robot body names), each in FL, FR, RL, RR order."""
-        sensor_ids, _ = self._ordered_ids(self.contact_sensor, self.spec.foot_regex,
-                                          self.contact_sensor.find_bodies)
-        robot_ids, robot_names = self._ordered_ids(self.robot, self.spec.foot_regex, self.robot.find_bodies)
+        sensor_ids, _ = self._ordered_ids(
+            self.contact_sensor, self.spec.foot_regex, self.contact_sensor.find_bodies
+        )
+        robot_ids, robot_names = self._ordered_ids(
+            self.robot, self.spec.foot_regex, self.robot.find_bodies
+        )
         return sensor_ids, robot_ids, robot_names
 
     def hip_body_ids(self):
@@ -295,8 +296,13 @@ class DirectEnvAdapter(EnvAdapter):
     def configure_cfg(self, env_cfg, num_envs, seed, device, enable_cameras, benchmark):
         super().configure_cfg(env_cfg, num_envs, seed, device, enable_cameras, benchmark)
         if not enable_cameras:
-            for name in ("tiled_camera_front", "tiled_camera_rear", "tiled_camera_left",
-                         "tiled_camera_right", "tiled_camera_top"):
+            for name in (
+                "tiled_camera_front",
+                "tiled_camera_rear",
+                "tiled_camera_left",
+                "tiled_camera_right",
+                "tiled_camera_top",
+            ):
                 if hasattr(env_cfg, name):
                     setattr(env_cfg, name, None)
 
@@ -320,9 +326,11 @@ class DirectEnvAdapter(EnvAdapter):
 
     def _enable_real_obs_noise(self, env_cfg):
         if hasattr(env_cfg, "obs_noise"):
-            env_cfg.obs_noise = True   # Meldog's inline noise uses the same magnitudes
+            env_cfg.obs_noise = True  # Meldog's inline noise uses the same magnitudes
             return ["cfg.obs_noise = True (Isaac Lab default magnitudes)"]
-        return ["[WARN] this direct env has no observation-noise option; real profile without obs noise"]
+        return [
+            "[WARN] this direct env has no observation-noise option; real profile without obs noise"
+        ]
 
     @property
     def robot(self):
@@ -441,7 +449,9 @@ class ManagerEnvAdapter(EnvAdapter):
 def task_tag(task: str) -> str:
     """Short folder tag for a task id, e.g. ``rough_simd1_v1`` or ``ref_go2_rough``."""
     if task.startswith("Meldog-RL-Locomotion-"):
-        return task.replace("Meldog-RL-Locomotion-", "").replace("-v0", "").replace("-", "_").lower()
+        return (
+            task.replace("Meldog-RL-Locomotion-", "").replace("-v0", "").replace("-", "_").lower()
+        )
     spec = find_robot_spec(task)
     terrain = "flat" if "Flat" in task else "rough" if "Rough" in task else "task"
     direct = "_direct" if "Direct" in task else ""

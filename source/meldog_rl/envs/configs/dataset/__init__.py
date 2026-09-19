@@ -4,8 +4,8 @@
 """Dataset collection environment configs (cameras enabled)."""
 
 from .flat_cfg import FlatDatasetCfg
-from .rough_cfg import RoughDatasetCfg
 from .flat_obs_cfg import FlatObsDatasetCfg
+from .rough_cfg import RoughDatasetCfg
 from .rough_obs_cfg import RoughObsDatasetCfg
 
 __all__ = ["FlatDatasetCfg", "RoughDatasetCfg", "FlatObsDatasetCfg", "RoughObsDatasetCfg"]

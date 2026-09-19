@@ -3,12 +3,12 @@
 
 """Perception models for terrain reconstruction."""
 
-from .projector import DepthProjector, euler_from_quat
 from .common import ConvGRU, ConvGRUCell, HybridTerrainLoss, augment_sequence, augment_sequence_v6
-from .heightmap_convgru import HeightmapConvGRU
-from .heightmap_autoreg import HeightmapAutoregressive, transform_height_map_with_mask
-from .slam_baseline import SLAMBaseline
 from .elevation_mapper import ElevationMapper
+from .heightmap_autoreg import HeightmapAutoregressive, transform_height_map_with_mask
+from .heightmap_convgru import HeightmapConvGRU
+from .projector import DepthProjector, euler_from_quat
+from .slam_baseline import SLAMBaseline
 
 # TODO: VoxelSparse
 
@@ -24,7 +24,7 @@ __all__ = [
     # "VoxelSparse",
     # Common
     "ConvGRU",
-    "ConvGRUCell", 
+    "ConvGRUCell",
     "HybridTerrainLoss",
     "augment_sequence",
     "augment_sequence_v6",

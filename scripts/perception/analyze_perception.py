@@ -69,10 +69,10 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import h5py
-
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -80,8 +80,8 @@ MAP_SIZE = 40
 MAP_RES = 0.05  # meters / cell
 
 # Fixed display scales (shared with the eval-video panels for visual consistency).
-HEIGHT_CLIP = 0.5   # viridis, +/- 0.5 m
-ERROR_CLIP = 0.2    # hot, 0 .. 0.2 m
+HEIGHT_CLIP = 0.5  # viridis, +/- 0.5 m
+ERROR_CLIP = 0.2  # hot, 0 .. 0.2 m
 DEFAULT_TIMESTEPS = [50, 200, 500, 950]
 
 # Values below this are the projector's no-data sentinel (clamp floor -2.0 m), not
@@ -100,9 +100,9 @@ RESET_JUMP_M = 0.5  # meters
 # support (rmse_visible absolute floor; occluded-vs-visible ratio). The model<SLAM
 # comparison checks are emitted only when two inputs are supplied.
 FLAG_EMOJI = {"good": "✅", "acceptable": "⚠️", "investigate": "❌"}
-RMSE_VISIBLE_GOOD = 0.05        # m, evaluation.md "rmse_visible < 0.05 m"
+RMSE_VISIBLE_GOOD = 0.05  # m, evaluation.md "rmse_visible < 0.05 m"
 RMSE_VISIBLE_ACCEPTABLE = 0.10  # 2x soft margin -> ⚠️ tier
-OCCLUDED_VS_VISIBLE_MAX = 4.0   # evaluation.md "rmse_occluded <= 4x rmse_visible"
+OCCLUDED_VS_VISIBLE_MAX = 4.0  # evaluation.md "rmse_occluded <= 4x rmse_visible"
 
 
 def _finite(x):
@@ -126,9 +126,9 @@ def compute_perception_flags(results):
     rv = _finite(primary.get("rmse_visible"))
     if rv is not None:
         flags["rmse_visible"] = (
-            "good" if rv < RMSE_VISIBLE_GOOD
-            else "acceptable" if rv < RMSE_VISIBLE_ACCEPTABLE
-            else "investigate"
+            "good"
+            if rv < RMSE_VISIBLE_GOOD
+            else "acceptable" if rv < RMSE_VISIBLE_ACCEPTABLE else "investigate"
         )
     ro = _finite(primary.get("rmse_occluded"))
     if rv is not None and ro is not None and rv > 0:
@@ -214,9 +214,7 @@ def load_h5(path: Path):
     file_attrs = {}
 
     with h5py.File(path, "r") as f:
-        grouped = any(
-            k.startswith("env_") and isinstance(f[k], h5py.Group) for k in f.keys()
-        )
+        grouped = any(k.startswith("env_") and isinstance(f[k], h5py.Group) for k in f.keys())
         file_attrs = {k: _decode_attr(f.attrs[k]) for k in f.attrs}
         for _name, grp in _iter_env_groups(f):
             keys = set(grp.keys())
@@ -236,8 +234,7 @@ def load_h5(path: Path):
                 np.asarray(grp["occlusion_mask"][:]) if "occlusion_mask" in keys else None
             )
             pos_list.append(
-                np.asarray(grp["robot_pos"][:], dtype=np.float32)
-                if "robot_pos" in keys else None
+                np.asarray(grp["robot_pos"][:], dtype=np.float32) if "robot_pos" in keys else None
             )
             dones_list.append(
                 np.asarray(grp["dones"][:], dtype=np.uint8) if "dones" in keys else None
@@ -294,8 +291,14 @@ def load_h5(path: Path):
         )
 
     return {
-        "gt": gt, "pred": pred, "sparse": sparse, "mask": mask,
-        "robot_pos": robot_pos, "dones": dones, "attrs": file_attrs, "schema": schema,
+        "gt": gt,
+        "pred": pred,
+        "sparse": sparse,
+        "mask": mask,
+        "robot_pos": robot_pos,
+        "dones": dones,
+        "attrs": file_attrs,
+        "schema": schema,
     }
 
 
@@ -324,13 +327,20 @@ def _sobel_grad_mag(frame: np.ndarray) -> np.ndarray:
     ky = kx.T
     p = np.pad(frame, 1, mode="edge")
     gx = (
-        kx[0, 0] * p[:-2, :-2] + kx[0, 2] * p[:-2, 2:]
-        + kx[1, 0] * p[1:-1, :-2] + kx[1, 2] * p[1:-1, 2:]
-        + kx[2, 0] * p[2:, :-2] + kx[2, 2] * p[2:, 2:]
+        kx[0, 0] * p[:-2, :-2]
+        + kx[0, 2] * p[:-2, 2:]
+        + kx[1, 0] * p[1:-1, :-2]
+        + kx[1, 2] * p[1:-1, 2:]
+        + kx[2, 0] * p[2:, :-2]
+        + kx[2, 2] * p[2:, 2:]
     )
     gy = (
-        ky[0, 0] * p[:-2, :-2] + ky[0, 1] * p[:-2, 1:-1] + ky[0, 2] * p[:-2, 2:]
-        + ky[2, 0] * p[2:, :-2] + ky[2, 1] * p[2:, 1:-1] + ky[2, 2] * p[2:, 2:]
+        ky[0, 0] * p[:-2, :-2]
+        + ky[0, 1] * p[:-2, 1:-1]
+        + ky[0, 2] * p[:-2, 2:]
+        + ky[2, 0] * p[2:, :-2]
+        + ky[2, 1] * p[2:, 1:-1]
+        + ky[2, 2] * p[2:, 2:]
     )
     return np.sqrt(gx * gx + gy * gy)
 
@@ -341,7 +351,7 @@ def _dilate3x3(m: np.ndarray) -> np.ndarray:
     out = np.zeros_like(m)
     for dy in range(3):
         for dx in range(3):
-            out |= p[dy:dy + m.shape[0], dx:dx + m.shape[1]]
+            out |= p[dy : dy + m.shape[0], dx : dx + m.shape[1]]
     return out
 
 
@@ -376,12 +386,12 @@ def compute_metrics(data: dict, n_radial: int = 4) -> dict:
     ``coverage`` reports the fraction of cells that carry a real estimate.
     """
     gt, pred, mask = data["gt"], data["pred"], data["mask"]
-    err = pred - gt                       # (N, T, H, W) signed error, meters
+    err = pred - gt  # (N, T, H, W) signed error, meters
     abs_err = np.abs(err)
     N, T, H, W = gt.shape
 
     # No-data sentinel: the prediction's own value marks absence of an estimate.
-    valid = pred >= SENTINEL_THRESH       # (N, T, H, W) True = real estimate
+    valid = pred >= SENTINEL_THRESH  # (N, T, H, W) True = real estimate
 
     metrics = {
         "rmse_all": _rmse(err[valid]),
@@ -391,7 +401,7 @@ def compute_metrics(data: dict, n_radial: int = 4) -> dict:
 
     # Visible / occluded split (thesis-critical pair), sentinel-excluded.
     if mask is not None:
-        occ = mask.astype(bool)           # True where occluded (mask == 1)
+        occ = mask.astype(bool)  # True where occluded (mask == 1)
         vis_valid = ~occ & valid
         occ_valid = occ & valid
         metrics["rmse_visible"] = _rmse(err[vis_valid]) if vis_valid.any() else None
@@ -404,7 +414,7 @@ def compute_metrics(data: dict, n_radial: int = 4) -> dict:
     bin_idx, edges = _radial_bins(H, W, n_radial)
     radial = []
     for b in range(n_radial):
-        cells = valid & (bin_idx == b)    # (H, W) broadcast over (N, T, H, W)
+        cells = valid & (bin_idx == b)  # (H, W) broadcast over (N, T, H, W)
         radial.append(_rmse(err[cells]) if cells.any() else float("nan"))
     metrics["rmse_radial"] = [float(v) for v in radial]
     metrics["radial_bin_edges_m"] = [float(e) for e in edges]
@@ -427,8 +437,8 @@ def compute_metrics(data: dict, n_radial: int = 4) -> dict:
     err2 = np.where(valid, np.square(err), np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)  # all-NaN steps
-        per_step = np.sqrt(np.nanmean(err2, axis=(0, 2, 3)))      # (T,)
-        per_env_step = np.sqrt(np.nanmean(err2, axis=(2, 3)))     # (N, T)
+        per_step = np.sqrt(np.nanmean(err2, axis=(0, 2, 3)))  # (T,)
+        per_env_step = np.sqrt(np.nanmean(err2, axis=(2, 3)))  # (N, T)
     metrics["error_vs_time"] = _nan_to_none(per_step)
 
     # Episode resets: prefer the real `dones` dataset; fall back to robot_pos jumps
@@ -482,10 +492,12 @@ def compute_metrics(data: dict, n_radial: int = 4) -> dict:
 def _imshow_panel(ax, arr, title, cmap, vmin, vmax, cbar_label):
     cmap_obj = plt.get_cmap(cmap).copy()
     cmap_obj.set_bad(color="0.55")  # sentinel / no-data cells render gray
-    im = ax.imshow(arr, cmap=cmap_obj, vmin=vmin, vmax=vmax,
-                   origin="upper", interpolation="nearest")
+    im = ax.imshow(
+        arr, cmap=cmap_obj, vmin=vmin, vmax=vmax, origin="upper", interpolation="nearest"
+    )
     ax.set_title(title, fontsize=10)
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
     # Robot is at map center; mark it for orientation.
     h, w = arr.shape
     ax.plot((w - 1) / 2.0, (h - 1) / 2.0, marker="+", color="red", markersize=8, mew=1.5)
@@ -523,15 +535,26 @@ def plot_panels(data: dict, out_dir: Path, timesteps, env: int, label: str):
         err_f = np.ma.masked_array(np.abs(pred[env, t] - gt_f), mask=pred_f.mask)
 
         ci = 0
-        _imshow_panel(axes[ci], gt_f, "GT height", "viridis",
-                      -HEIGHT_CLIP, HEIGHT_CLIP, "height [m]"); ci += 1
-        _imshow_panel(axes[ci], pred_f, "Prediction", "viridis",
-                      -HEIGHT_CLIP, HEIGHT_CLIP, "height [m]"); ci += 1
+        _imshow_panel(
+            axes[ci], gt_f, "GT height", "viridis", -HEIGHT_CLIP, HEIGHT_CLIP, "height [m]"
+        )
+        ci += 1
+        _imshow_panel(
+            axes[ci], pred_f, "Prediction", "viridis", -HEIGHT_CLIP, HEIGHT_CLIP, "height [m]"
+        )
+        ci += 1
         if sparse is not None:
-            _imshow_panel(axes[ci], _mask_sentinel(sparse[env, t]), "Sparse input",
-                          "viridis", -HEIGHT_CLIP, HEIGHT_CLIP, "height [m]"); ci += 1
-        _imshow_panel(axes[ci], err_f, "Abs error", "hot",
-                      0.0, ERROR_CLIP, "|err| [m]")
+            _imshow_panel(
+                axes[ci],
+                _mask_sentinel(sparse[env, t]),
+                "Sparse input",
+                "viridis",
+                -HEIGHT_CLIP,
+                HEIGHT_CLIP,
+                "height [m]",
+            )
+            ci += 1
+        _imshow_panel(axes[ci], err_f, "Abs error", "hot", 0.0, ERROR_CLIP, "|err| [m]")
 
         fig.suptitle(f"{label} — env {env}, step {t} (gray = no data)", fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.96])
@@ -553,22 +576,26 @@ def plot_error_over_time(results, out_dir: Path):
         curve = np.array(
             [np.nan if v is None else v for v in metrics["error_vs_time"]], dtype=float
         )
-        ax_raw.plot(np.arange(len(curve)), curve, label=label,
-                    linewidth=1.5, color=color)
+        ax_raw.plot(np.arange(len(curve)), curve, label=label, linewidth=1.5, color=color)
         # Mark detected resets (union across envs) in the curve's color.
         reset_steps = metrics.get("reset_steps") or []
         all_resets = sorted({t for env_resets in reset_steps for t in env_resets})
         for j, t in enumerate(all_resets):
-            ax_raw.axvline(t, color=color, linestyle="--", linewidth=0.8, alpha=0.4,
-                           label=f"{label} resets" if j == 0 else None)
+            ax_raw.axvline(
+                t,
+                color=color,
+                linestyle="--",
+                linewidth=0.8,
+                alpha=0.4,
+                label=f"{label} resets" if j == 0 else None,
+            )
 
         aligned = metrics.get("error_vs_time_since_reset")
         if aligned is not None:
-            aligned = np.array(
-                [np.nan if v is None else v for v in aligned], dtype=float
+            aligned = np.array([np.nan if v is None else v for v in aligned], dtype=float)
+            ax_aligned.plot(
+                np.arange(len(aligned)), aligned, label=label, linewidth=1.5, color=color
             )
-            ax_aligned.plot(np.arange(len(aligned)), aligned, label=label,
-                            linewidth=1.5, color=color)
 
     ax_raw.set_xlabel("timestep")
     ax_raw.set_ylabel("RMSE (non-sentinel cells) [m]")
@@ -642,9 +669,11 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
 
     # Metrics table (single or side-by-side).
     lines.append("## Metrics")
-    lines.append("Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate. "
-                 "Perception bands are thesis-internal; only single-run-computable checks are "
-                 "flagged here (model<SLAM comparisons appear only with two inputs).\n")
+    lines.append(
+        "Flags vs `docs/evaluation.md`: ✅ good · ⚠️ acceptable · ❌ investigate. "
+        "Perception bands are thesis-internal; only single-run-computable checks are "
+        "flagged here (model<SLAM comparisons appear only with two inputs).\n"
+    )
     if len(results) == 1:
         label, m, _s = results[0]
         lines.append("| metric | value | flag |")
@@ -655,7 +684,9 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
         # Derived single-run check: occluded error should stay within 4x visible.
         rv, ro = m.get("rmse_visible"), m.get("rmse_occluded")
         ratio = f"{ro / rv:.2f}x" if (rv and ro and rv > 0) else "n/a"
-        lines.append(f"| RMSE occluded / visible (<= 4x) | {ratio} | {fe('rmse_occluded_vs_visible')} |")
+        lines.append(
+            f"| RMSE occluded / visible (<= 4x) | {ratio} | {fe('rmse_occluded_vs_visible')} |"
+        )
         edges = m["radial_bin_edges_m"]
         for i, v in enumerate(m["rmse_radial"]):
             lines.append(f"| RMSE radial [{edges[i]:.2f}-{edges[i+1]:.2f} m] | {_fmt(v)} |  |")
@@ -676,12 +707,13 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
         for i in range(n_bins):
             row = [_fmt(r[1]["rmse_radial"][i]) for r in results]
             lines.append(
-                f"| RMSE radial [{edges[i]:.2f}-{edges[i+1]:.2f} m] | "
-                + " | ".join(row) + " |  |"
+                f"| RMSE radial [{edges[i]:.2f}-{edges[i+1]:.2f} m] | " + " | ".join(row) + " |  |"
             )
         lines.append("")
-        lines.append("> Comparison flags read the first input as `model`, the second as "
-                     "`slam`: ✅ = model beats slam (rmse_all, rmse_occluded, edge_mae).")
+        lines.append(
+            "> Comparison flags read the first input as `model`, the second as "
+            "`slam`: ✅ = model beats slam (rmse_all, rmse_occluded, edge_mae)."
+        )
     lines.append("")
     lines.append(
         "> Occlusion split uses projector semantics: mask==0 observed (visible), "
@@ -709,12 +741,12 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
     lines.append("## Plots")
     lines.append(
         f"- `plots/{err_plot_name}` — raw RMSE over time (resets marked) + "
-        "reset-aligned memory curve"
-        + (" (all inputs overlaid)" if len(results) > 1 else "")
+        "reset-aligned memory curve" + (" (all inputs overlaid)" if len(results) > 1 else "")
     )
     for name in panel_names:
-        lines.append(f"- `plots/{name}` — GT | prediction | sparse | error panels "
-                     "(gray = no data)")
+        lines.append(
+            f"- `plots/{name}` — GT | prediction | sparse | error panels " "(gray = no data)"
+        )
     lines.append("")
 
     (out_dir / "report.md").write_text("\n".join(lines))
@@ -725,26 +757,36 @@ def write_report(out_dir: Path, results, meta: dict, panel_names, err_plot_name,
 # --------------------------------------------------------------------------- #
 def _git_commit() -> str:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return ""
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Sim-free perception evaluation analyzer."
-    )
+    parser = argparse.ArgumentParser(description="Sim-free perception evaluation analyzer.")
     parser.add_argument("inputs", nargs="+", help="One or two perception data.h5 files.")
-    parser.add_argument("-o", "--output", default=None,
-                        help="Output dir (default: alongside the first input h5).")
-    parser.add_argument("--labels", nargs="+", default=None,
-                        help="Labels for the inputs (e.g. model slam).")
-    parser.add_argument("--env", type=int, default=0,
-                        help="Env index used for the panel plots (default 0).")
-    parser.add_argument("--timesteps", type=int, nargs="+", default=DEFAULT_TIMESTEPS,
-                        help="Timesteps for panel plots (clamped to sequence length).")
+    parser.add_argument(
+        "-o", "--output", default=None, help="Output dir (default: alongside the first input h5)."
+    )
+    parser.add_argument(
+        "--labels", nargs="+", default=None, help="Labels for the inputs (e.g. model slam)."
+    )
+    parser.add_argument(
+        "--env", type=int, default=0, help="Env index used for the panel plots (default 0)."
+    )
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        nargs="+",
+        default=DEFAULT_TIMESTEPS,
+        help="Timesteps for panel plots (clamped to sequence length).",
+    )
     args = parser.parse_args()
 
     if len(args.inputs) > 2:
@@ -766,8 +808,8 @@ def main():
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Load + compute per input.
-    results = []          # (label, metrics, schema)
-    loaded = []           # (label, data)
+    results = []  # (label, metrics, schema)
+    loaded = []  # (label, data)
     for label, path in zip(labels, input_paths):
         data = load_h5(path)
         metrics = compute_metrics(data)
@@ -775,19 +817,18 @@ def main():
         schema["input_h5"] = str(path)
         results.append((label, metrics, schema))
         loaded.append((label, data))
-        print(f"[{label}] {path}: rmse_all={metrics['rmse_all']:.4f} m "
-              f"coverage={metrics['coverage']:.3f} "
-              f"visible={_fmt(metrics['rmse_visible'])} "
-              f"occluded={_fmt(metrics['rmse_occluded'])} "
-              f"resets={_fmt(metrics['num_resets'])}")
+        print(
+            f"[{label}] {path}: rmse_all={metrics['rmse_all']:.4f} m "
+            f"coverage={metrics['coverage']:.3f} "
+            f"visible={_fmt(metrics['rmse_visible'])} "
+            f"occluded={_fmt(metrics['rmse_occluded'])} "
+            f"resets={_fmt(metrics['num_resets'])}"
+        )
 
     # Panels: from the primary (first) input; error curves overlay all inputs.
     primary_label, primary_data = loaded[0]
-    panel_names = plot_panels(primary_data, plots_dir, args.timesteps,
-                              args.env, primary_label)
-    err_plot_name = plot_error_over_time(
-        [(lbl, m) for lbl, m, _s in results], plots_dir
-    )
+    panel_names = plot_panels(primary_data, plots_dir, args.timesteps, args.env, primary_label)
+    err_plot_name = plot_error_over_time([(lbl, m) for lbl, m, _s in results], plots_dir)
 
     # metrics.json (stable meta + perception schema).
     primary_schema = results[0][2]

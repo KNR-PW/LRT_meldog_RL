@@ -46,21 +46,36 @@ def to_int16_mm(arr):
 def main():
     parser = argparse.ArgumentParser(description="Replay a SLAM baseline on a recorded data.h5.")
     parser.add_argument("input", type=str, help="Source data.h5 (from evaluate_perception.py).")
-    parser.add_argument("--variant", type=str, default="elevation", choices=["legacy", "elevation"],
-                        help="SLAM baseline variant.")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Output dir (default: new logs/perception/PE_slam-<variant>-replay_* dir).")
+    parser.add_argument(
+        "--variant",
+        type=str,
+        default="elevation",
+        choices=["legacy", "elevation"],
+        help="SLAM baseline variant.",
+    )
+    parser.add_argument(
+        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output dir (default: new logs/perception/PE_slam-<variant>-replay_* dir).",
+    )
     args = parser.parse_args()
 
     device = args.device
     f_in = h5py.File(args.input, "r")
-    env_keys = sorted([k for k in f_in.keys() if k.startswith("env_")],
-                      key=lambda k: int(k.split("_")[1]))
+    env_keys = sorted(
+        [k for k in f_in.keys() if k.startswith("env_")], key=lambda k: int(k.split("_")[1])
+    )
     B = len(env_keys)
 
     # Load per-env sequences and stack to (T, B, ...).
-    sparse = np.stack([f_in[k]["sparse_height"][:] for k in env_keys], axis=1).astype(np.float32) / 1000.0
+    sparse = (
+        np.stack([f_in[k]["sparse_height"][:] for k in env_keys], axis=1).astype(np.float32)
+        / 1000.0
+    )
     occ = np.stack([f_in[k]["occlusion_mask"][:] for k in env_keys], axis=1).astype(np.float32)
     pos = np.stack([f_in[k]["robot_pos"][:] for k in env_keys], axis=1).astype(np.float32)
     quat = np.stack([f_in[k]["robot_quat"][:] for k in env_keys], axis=1).astype(np.float32)
@@ -110,9 +125,12 @@ def main():
             for name in ("pred_height", "diff_height"):
                 if name in f_out[k]:
                     del f_out[k][name]
-            f_out[k].create_dataset("pred_height", data=to_int16_mm(preds[:, i]), compression="gzip")
-            f_out[k].create_dataset("diff_height", data=to_int16_mm(np.abs(gt[:, i] - preds[:, i])),
-                                    compression="gzip")
+            f_out[k].create_dataset(
+                "pred_height", data=to_int16_mm(preds[:, i]), compression="gzip"
+            )
+            f_out[k].create_dataset(
+                "diff_height", data=to_int16_mm(np.abs(gt[:, i] - preds[:, i])), compression="gzip"
+            )
 
         for key, val in f_in.attrs.items():
             f_out.attrs[key] = val

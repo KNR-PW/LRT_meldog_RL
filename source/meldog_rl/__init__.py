@@ -37,13 +37,14 @@ def get_version():
 # Lazy imports - only load Isaac Lab stuff when needed
 def _register_tasks():
     """Register tasks with gymnasium. Call this after Isaac Lab is initialized."""
-    from . import envs  # noqa: F401
     from . import agents  # noqa: F401
+    from . import envs  # noqa: F401
 
 
 # Check if we're running inside Isaac Lab (pxr available)
 try:
     import pxr  # noqa: F401
+
     # Inside Isaac Lab - register tasks immediately
     _register_tasks()
 except ImportError:

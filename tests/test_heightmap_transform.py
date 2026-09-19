@@ -40,9 +40,12 @@ def shift_bump(prev_pos, prev_yaw, curr_pos, curr_yaw, bump_xy, bump_h=1.0):
     r, c = rc_from_xy(*bump_xy)
     prev[0, 0, r, c] = bump_h
     out, _ = transform_height_map_with_mask(
-        prev, valid,
-        torch.tensor([prev_pos]), torch.tensor([prev_yaw]),
-        torch.tensor([curr_pos]), torch.tensor([curr_yaw]),
+        prev,
+        valid,
+        torch.tensor([prev_pos]),
+        torch.tensor([prev_yaw]),
+        torch.tensor([curr_pos]),
+        torch.tensor([curr_yaw]),
     )
     idx = out[0, 0].view(-1).argmax().item()
     return out, (idx // MAP_SIZE, idx % MAP_SIZE)

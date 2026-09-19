@@ -44,7 +44,10 @@ REAL_OBS_NOISE = {
 }
 REAL_FRICTION = {"static_friction_range": (0.4, 1.2), "dynamic_friction_range": (0.3, 1.0)}
 REAL_MASS_FRACTION = 0.10
-REAL_PUSH = {"interval_range_s": (10.0, 15.0), "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}}
+REAL_PUSH = {
+    "interval_range_s": (10.0, 15.0),
+    "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)},
+}
 
 
 def _func_name(term) -> str:
@@ -136,7 +139,11 @@ def apply_real_obs_noise(env_cfg) -> list[str]:
         if not hasattr(term, "noise"):
             continue
         magnitude = REAL_OBS_NOISE.get(term_name)
-        term.noise = None if magnitude is None else AdditiveUniformNoiseCfg(n_min=-magnitude, n_max=magnitude)
+        term.noise = (
+            None
+            if magnitude is None
+            else AdditiveUniformNoiseCfg(n_min=-magnitude, n_max=magnitude)
+        )
         if magnitude is not None:
             log.append(f"obs '{term_name}': ±{magnitude}")
     return log

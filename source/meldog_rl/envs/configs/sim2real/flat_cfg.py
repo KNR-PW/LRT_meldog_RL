@@ -12,9 +12,9 @@ from ..simulation.flat_cfg import FlatSimCfg
 @configclass
 class FlatRealCfg(FlatSimCfg):
     """Flat terrain with domain randomization for sim-to-real transfer.
-    
+
     Inherits terrain from FlatSimCfg, adds aggressive randomization.
     """
-    
+
     # Override with aggressive domain randomization
     events: Sim2RealEventCfg = Sim2RealEventCfg()

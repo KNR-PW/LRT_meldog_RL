@@ -12,9 +12,9 @@ from ..simulation.rough_obs_cfg import RoughObsSimCfg
 @configclass
 class RoughObsRealCfg(RoughObsSimCfg):
     """Rough terrain + obstacles with domain randomization for sim-to-real.
-    
+
     Inherits terrain from RoughObsSimCfg, adds aggressive randomization.
     """
-    
+
     # Override with aggressive domain randomization
     events: Sim2RealEventCfg = Sim2RealEventCfg()

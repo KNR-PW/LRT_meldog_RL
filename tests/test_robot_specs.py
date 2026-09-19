@@ -15,7 +15,9 @@ import os
 import sys
 
 # Load the module file directly: importing the meldog_rl package would pull in Isaac Lab.
-_PATH = os.path.join(os.path.dirname(__file__), "..", "source", "meldog_rl", "eval", "robot_specs.py")
+_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "source", "meldog_rl", "eval", "robot_specs.py"
+)
 _spec = importlib.util.spec_from_file_location("robot_specs", _PATH)
 robot_specs = importlib.util.module_from_spec(_spec)
 sys.modules["robot_specs"] = robot_specs
@@ -23,31 +25,56 @@ _spec.loader.exec_module(robot_specs)
 
 # (task id, body or joint names in the order an asset may list them, expected FL, FR, RL, RR)
 CASES = [
-    ("Meldog-RL-Locomotion-Rough-SimD1-v1",
-     ["LFF_link", "LRF_link", "RFF_link", "RRF_link"], ["LFF_link", "RFF_link", "LRF_link", "RRF_link"]),
-    ("Meldog-RL-Locomotion-Rough-SimD1-v1",
-     ["LFK_joint", "LRK_joint", "RFK_joint", "RRK_joint"], ["LFK_joint", "RFK_joint", "LRK_joint", "RRK_joint"]),
-    ("Isaac-Velocity-Rough-Anymal-C-v0",
-     ["LF_FOOT", "LH_FOOT", "RF_FOOT", "RH_FOOT"], ["LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"]),
-    ("Isaac-Velocity-Rough-Unitree-Go2-v0",
-     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
-     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"]),
-    ("Isaac-Velocity-Rough-Unitree-A1-v0",
-     ["RR_foot", "RL_foot", "FR_foot", "FL_foot"], ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]),
-    ("Isaac-Velocity-Flat-Spot-v0",
-     ["fl_foot", "fr_foot", "hl_foot", "hr_foot"], ["fl_foot", "fr_foot", "hl_foot", "hr_foot"]),
-    ("RobotLab-Isaac-Velocity-Rough-Deeprobotics-Lite3-v0",
-     ["HR_Knee_joint", "HL_Knee_joint", "FR_Knee_joint", "FL_Knee_joint"],
-     ["FL_Knee_joint", "FR_Knee_joint", "HL_Knee_joint", "HR_Knee_joint"]),
-    ("RobotLab-Isaac-Velocity-Rough-Zsibot-ZSL1-v0",
-     ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"],
-     ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"]),
-    ("RobotLab-Isaac-Velocity-Rough-Agibot-D1-v0",
-     ["FL_FOOT_LINK", "FR_FOOT_LINK", "RR_FOOT_LINK", "RL_FOOT_LINK"],
-     ["FL_FOOT_LINK", "FR_FOOT_LINK", "RL_FOOT_LINK", "RR_FOOT_LINK"]),
-    ("RobotLab-Isaac-Velocity-Rough-Unitree-B2-v0",
-     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
-     ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"]),
+    (
+        "Meldog-RL-Locomotion-Rough-SimD1-v1",
+        ["LFF_link", "LRF_link", "RFF_link", "RRF_link"],
+        ["LFF_link", "RFF_link", "LRF_link", "RRF_link"],
+    ),
+    (
+        "Meldog-RL-Locomotion-Rough-SimD1-v1",
+        ["LFK_joint", "LRK_joint", "RFK_joint", "RRK_joint"],
+        ["LFK_joint", "RFK_joint", "LRK_joint", "RRK_joint"],
+    ),
+    (
+        "Isaac-Velocity-Rough-Anymal-C-v0",
+        ["LF_FOOT", "LH_FOOT", "RF_FOOT", "RH_FOOT"],
+        ["LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"],
+    ),
+    (
+        "Isaac-Velocity-Rough-Unitree-Go2-v0",
+        ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
+        ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
+    ),
+    (
+        "Isaac-Velocity-Rough-Unitree-A1-v0",
+        ["RR_foot", "RL_foot", "FR_foot", "FL_foot"],
+        ["FL_foot", "FR_foot", "RL_foot", "RR_foot"],
+    ),
+    (
+        "Isaac-Velocity-Flat-Spot-v0",
+        ["fl_foot", "fr_foot", "hl_foot", "hr_foot"],
+        ["fl_foot", "fr_foot", "hl_foot", "hr_foot"],
+    ),
+    (
+        "RobotLab-Isaac-Velocity-Rough-Deeprobotics-Lite3-v0",
+        ["HR_Knee_joint", "HL_Knee_joint", "FR_Knee_joint", "FL_Knee_joint"],
+        ["FL_Knee_joint", "FR_Knee_joint", "HL_Knee_joint", "HR_Knee_joint"],
+    ),
+    (
+        "RobotLab-Isaac-Velocity-Rough-Zsibot-ZSL1-v0",
+        ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"],
+        ["FBL_KNEE_JOINT", "FAR_KNEE_JOINT", "RBL_KNEE_JOINT", "RAR_KNEE_JOINT"],
+    ),
+    (
+        "RobotLab-Isaac-Velocity-Rough-Agibot-D1-v0",
+        ["FL_FOOT_LINK", "FR_FOOT_LINK", "RR_FOOT_LINK", "RL_FOOT_LINK"],
+        ["FL_FOOT_LINK", "FR_FOOT_LINK", "RL_FOOT_LINK", "RR_FOOT_LINK"],
+    ),
+    (
+        "RobotLab-Isaac-Velocity-Rough-Unitree-B2-v0",
+        ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
+        ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"],
+    ),
 ]
 
 
@@ -63,7 +90,10 @@ def test_canonical_order():
 def test_rejects_incomplete_or_wrong_convention():
     assert robot_specs.canonical_order(["FL_foot", "FR_foot"], "end_side") is None
     # Unitree names read side-first give no valid set of four labels.
-    assert robot_specs.canonical_order(["FL_foot", "FR_foot", "RL_foot", "RR_foot"], "side_end") is None
+    assert (
+        robot_specs.canonical_order(["FL_foot", "FR_foot", "RL_foot", "RR_foot"], "side_end")
+        is None
+    )
     print("  OK  incomplete or wrong-convention names are rejected")
 
 

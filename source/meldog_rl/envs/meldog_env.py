@@ -10,34 +10,28 @@ collection tasks. The behavior is controlled by the configuration passed in.
 from __future__ import annotations
 
 import gymnasium as gym
-import torch
-
 import isaaclab.sim as sim_utils
+import torch
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import ContactSensor, RayCaster, TiledCamera
-from isaaclab.utils.math import (
-    quat_apply,
-    quat_apply_inverse,
-    quat_from_angle_axis,
-    quat_mul,
-)
+from isaaclab.utils.math import quat_apply, quat_apply_inverse, quat_from_angle_axis, quat_mul
 
 from .configs import BaseMeldogEnvCfg
 
 
 class MeldogEnv(DirectRLEnv):
     """Meldog quadruped locomotion environment.
-    
+
     This environment supports:
     - Multiple terrain types (flat, rough, obstacles)
     - Optional camera sensors for dataset collection
     - Domain randomization for sim-to-real transfer
-    
+
     The specific behavior is controlled by the configuration class passed in.
     """
-    
+
     cfg: BaseMeldogEnvCfg
 
     def __init__(self, cfg: BaseMeldogEnvCfg, render_mode: str | None = None, **kwargs):
@@ -45,12 +39,10 @@ class MeldogEnv(DirectRLEnv):
 
         # Action buffers
         self._actions = torch.zeros(
-            self.num_envs, 
-            gym.spaces.flatdim(self.single_action_space), 
-            device=self.device
+            self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
         self._previous_actions = torch.zeros_like(self._actions)
-        
+
         # Command buffer [vx, vy, yaw_rate]
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
@@ -150,7 +142,7 @@ class MeldogEnv(DirectRLEnv):
 
     def _setup_scene(self):
         """Set up the simulation scene with robot, sensors, and terrain."""
-        
+
         # 1. Robot
         self._robot = Articulation(self.cfg.robot)
         self.scene.articulations["robot"] = self._robot
@@ -178,7 +170,7 @@ class MeldogEnv(DirectRLEnv):
             ("right", "tiled_camera_right"),
             ("top", "tiled_camera_top"),
         ]
-        
+
         for name, cfg_attr in camera_configs:
             cfg_value = getattr(self.cfg, cfg_attr, None)
             if cfg_value is not None:
@@ -221,9 +213,7 @@ class MeldogEnv(DirectRLEnv):
 
         # Advance the gait phase clock (Run C)
         if self.cfg.gait_clock:
-            self._gait_phase = (
-                self._gait_phase + self.step_dt * self.cfg.gait_clock_freq
-            ) % 1.0
+            self._gait_phase = (self._gait_phase + self.step_dt * self.cfg.gait_clock_freq) % 1.0
 
         # Debug visualization
         if self.cfg.debug_vis:
@@ -331,14 +321,14 @@ class MeldogEnv(DirectRLEnv):
 
         # Concatenate observation vector
         obs_parts = [
-            lin_vel,                              # 3
-            ang_vel,                              # 3
-            gravity,                              # 3
-            self._commands,                        # 3
-            joint_pos,                             # 12
-            joint_vel,                             # 12
-            height_data,                          # 187 (17x11)
-            self._actions,                        # 12
+            lin_vel,  # 3
+            ang_vel,  # 3
+            gravity,  # 3
+            self._commands,  # 3
+            joint_pos,  # 12
+            joint_vel,  # 12
+            height_data,  # 187 (17x11)
+            self._actions,  # 12
         ]
 
         # Gait clock observations (Run C): [sin, cos] of the phase, appended last.
@@ -361,21 +351,15 @@ class MeldogEnv(DirectRLEnv):
         )
         lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
 
-        yaw_rate_error = torch.square(
-            self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2]
-        )
+        yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
         yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25)
 
         # Penalty terms
         z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
-        ang_vel_error = torch.sum(
-            torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1
-        )
+        ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
         joint_accel = torch.sum(torch.square(self._robot.data.joint_acc), dim=1)
-        action_rate = torch.sum(
-            torch.square(self._actions - self._previous_actions), dim=1
-        )
+        action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
 
         # Gait rewards (legacy feet_air_time; scale-gated, V2 uses air_time_mode)
         if self.cfg.feet_air_time_reward_scale != 0.0:
@@ -387,17 +371,16 @@ class MeldogEnv(DirectRLEnv):
                 air_time_gate = torch.norm(self._commands, dim=1) > 0.1
             else:
                 air_time_gate = torch.norm(self._commands[:, :2], dim=1) > 0.1
-            air_time = torch.sum(
-                (last_air_time - self.cfg.feet_air_time) * first_contact, dim=1
-            ) * air_time_gate
+            air_time = (
+                torch.sum((last_air_time - self.cfg.feet_air_time) * first_contact, dim=1)
+                * air_time_gate
+            )
 
         # Undesired contacts
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
             torch.max(
-                torch.norm(
-                    net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1
-                ),
+                torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1),
                 dim=1,
             )[0]
             > 1.0
@@ -411,8 +394,12 @@ class MeldogEnv(DirectRLEnv):
 
         # Compute scaled rewards
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.cfg.lin_vel_reward_scale * self.step_dt,
-            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.cfg.yaw_rate_reward_scale * self.step_dt,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped
+            * self.cfg.lin_vel_reward_scale
+            * self.step_dt,
+            "track_ang_vel_z_exp": yaw_rate_error_mapped
+            * self.cfg.yaw_rate_reward_scale
+            * self.step_dt,
             "lin_vel_z_l2": z_vel_error * self.cfg.z_vel_reward_scale * self.step_dt,
             "ang_vel_xy_l2": ang_vel_error * self.cfg.ang_vel_reward_scale * self.step_dt,
             "dof_torques_l2": joint_torques * self.cfg.joint_torque_reward_scale * self.step_dt,
@@ -420,9 +407,7 @@ class MeldogEnv(DirectRLEnv):
             "action_rate_l2": action_rate * self.cfg.action_rate_reward_scale * self.step_dt,
         }
         if self.cfg.feet_air_time_reward_scale != 0.0:
-            rewards["feet_air_time"] = (
-                air_time * self.cfg.feet_air_time_reward_scale * self.step_dt
-            )
+            rewards["feet_air_time"] = air_time * self.cfg.feet_air_time_reward_scale * self.step_dt
         rewards["undesired_contacts"] = (
             contacts * self.cfg.undesired_contact_reward_scale * self.step_dt
         )
@@ -448,9 +433,7 @@ class MeldogEnv(DirectRLEnv):
             )
         if "air_time_mode" in self._active_v2_terms:
             rewards["air_time_mode"] = (
-                self._reward_air_time_mode()
-                * self.cfg.air_time_mode_reward_scale
-                * self.step_dt
+                self._reward_air_time_mode() * self.cfg.air_time_mode_reward_scale * self.step_dt
             )
         if "foot_clearance" in self._active_v2_terms:
             rewards["foot_clearance"] = (
@@ -470,9 +453,7 @@ class MeldogEnv(DirectRLEnv):
             )
         if "base_height" in self._active_v2_terms:
             rewards["base_height"] = (
-                self._reward_base_height()
-                * self.cfg.base_height_reward_scale
-                * self.step_dt
+                self._reward_base_height() * self.cfg.base_height_reward_scale * self.step_dt
             )
         if "flat_orientation_terrain" in self._active_v2_terms:
             rewards["flat_orientation_terrain"] = (
@@ -501,9 +482,7 @@ class MeldogEnv(DirectRLEnv):
         """
         net_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            torch.max(
-                torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1
-            )[0]
+            torch.max(torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1)[0]
             > 1.0
         )
         foot_planar_vel = torch.norm(
@@ -520,7 +499,7 @@ class MeldogEnv(DirectRLEnv):
         """
         air = self._contact_sensor.data.current_air_time
         contact = self._contact_sensor.data.current_contact_time
-        max_err_sq = self.cfg.gait_sync_max_err ** 2
+        max_err_sq = self.cfg.gait_sync_max_err**2
         std = self.cfg.gait_sync_std
 
         def sync(f0: int, f1: int) -> torch.Tensor:
@@ -601,9 +580,7 @@ class MeldogEnv(DirectRLEnv):
         """
         net_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            torch.max(
-                torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1
-            )[0]
+            torch.max(torch.norm(net_forces[:, :, self._feet_sensor_ids_canon], dim=-1), dim=1)[0]
             > 1.0
         )
         desired_stance, standing = self._clock_stance_schedule()
@@ -668,11 +645,11 @@ class MeldogEnv(DirectRLEnv):
         usable hit at all, its own trunk z is returned, which makes the derived
         "height above terrain" exactly 0 instead of NaN/inf.
         """
-        hits = self._height_scanner.data.ray_hits_w              # (N, R, 3)
-        origin = self._height_scanner.data.pos_w                 # (N, 3)
-        finite = torch.isfinite(hits).all(dim=-1)                # (N, R)
+        hits = self._height_scanner.data.ray_hits_w  # (N, R, 3)
+        origin = self._height_scanner.data.pos_w  # (N, 3)
+        finite = torch.isfinite(hits).all(dim=-1)  # (N, R)
         dist = torch.norm(hits[..., :2] - origin[:, :2].unsqueeze(1), dim=-1)
-        mask = finite & (dist <= radius)                         # NaN compares False
+        mask = finite & (dist <= radius)  # NaN compares False
         hit_z = torch.where(finite, hits[..., 2], torch.zeros_like(hits[..., 2]))
         count = mask.sum(dim=1)
         mean_z = (hit_z * mask).sum(dim=1) / count.clamp(min=1)
@@ -695,9 +672,9 @@ class MeldogEnv(DirectRLEnv):
         coordinates), which is what makes the terrain-relative orientation penalty
         collapse onto the legacy gravity-based one.
         """
-        hits = self._height_scanner.data.ray_hits_w              # (N, R, 3)
-        origin = self._height_scanner.data.pos_w                 # (N, 3)
-        finite = torch.isfinite(hits).all(dim=-1)                # (N, R)
+        hits = self._height_scanner.data.ray_hits_w  # (N, R, 3)
+        origin = self._height_scanner.data.pos_w  # (N, 3)
+        finite = torch.isfinite(hits).all(dim=-1)  # (N, R)
         w = finite.float()
 
         dx = torch.where(finite, hits[..., 0] - origin[:, 0:1], torch.zeros_like(w))
@@ -770,10 +747,7 @@ class MeldogEnv(DirectRLEnv):
         # Terminate if trunk hits ground
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         died = torch.any(
-            torch.max(
-                torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1
-            )[0]
-            > 1.0,
+            torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 1.0,
             dim=1,
         )
 
@@ -797,7 +771,9 @@ class MeldogEnv(DirectRLEnv):
         # rate. Drawn only when enabled so the default (0.0) leaves the RNG stream --
         # and thus every v0 command sequence -- bit-identical.
         if self.cfg.pure_rotation_fraction > 0.0:
-            rotation_mask = torch.rand(num_envs, device=self.device) < self.cfg.pure_rotation_fraction
+            rotation_mask = (
+                torch.rand(num_envs, device=self.device) < self.cfg.pure_rotation_fraction
+            )
             if rotation_mask.any():
                 self._commands[env_ids[rotation_mask], :2] = 0.0
 
@@ -825,8 +801,7 @@ class MeldogEnv(DirectRLEnv):
 
         # Calculate distance walked (XY plane only)
         distance_walked = torch.norm(
-            self._robot.data.root_pos_w[env_ids, :2] - self._initial_robot_pos[env_ids, :2],
-            dim=1
+            self._robot.data.root_pos_w[env_ids, :2] - self._initial_robot_pos[env_ids, :2], dim=1
         )
 
         # Check if terrain has a procedural generator (flat terrains often don't)
@@ -893,9 +868,9 @@ class MeldogEnv(DirectRLEnv):
                 quat_from_angle_axis(yaw, axis_z), default_root_state[:, 3:7]
             )
             # Root planar velocity +/-0.5 m/s
-            default_root_state[:, 7:9] += torch.empty(
-                num_resets, 2, device=self.device
-            ).uniform_(-0.5, 0.5)
+            default_root_state[:, 7:9] += torch.empty(num_resets, 2, device=self.device).uniform_(
+                -0.5, 0.5
+            )
             # Joint positions +/-0.1 rad around default, clamped to soft limits
             joint_pos = joint_pos + torch.empty_like(joint_pos).uniform_(-0.1, 0.1)
             soft_limits = self._robot.data.soft_joint_pos_limits[env_ids]
@@ -933,32 +908,32 @@ class MeldogEnv(DirectRLEnv):
     # =========================================================================
     # Public accessors for dataset collection
     # =========================================================================
-    
+
     @property
     def robot(self) -> Articulation:
         """Access robot articulation."""
         return self._robot
-    
+
     @property
     def cameras(self) -> dict[str, TiledCamera | None]:
         """Access camera sensors."""
         return self._cameras
-    
+
     @property
     def gt_scanner(self) -> RayCaster | None:
         """Access ground truth height scanner."""
         return self._gt_scanner
-    
+
     @property
     def height_scanner(self) -> RayCaster:
         """Access height scanner for locomotion."""
         return self._height_scanner
-    
+
     @property
     def terrain(self):
         """Access terrain."""
         return self._terrain
-    
+
     @property
     def commands(self) -> torch.Tensor:
         """Access current velocity commands."""
