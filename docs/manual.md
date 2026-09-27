@@ -17,7 +17,8 @@ train, evaluate, analyze and release locomotion and perception models.
   USD file, or copy it to `assets/robots/meldog/Meldog-1.4-no-ground-plane.usd`.
 - Isaac-free unit tests: `python tests/test_heightmap_transform.py`,
   `python tests/test_elevation_mapper.py`, `python tests/test_robot_specs.py`,
-  `python tests/test_benchmark_terrains.py` and `python tests/test_model_registry.py`.
+  `python tests/test_benchmark_terrains.py`, `python tests/test_model_registry.py` and
+  `python tests/test_perception_stepper.py`.
 
 ## 1. Locomotion Tasks
 
@@ -78,8 +79,8 @@ parameter count; print it with `python -m meldog_rl.models.perception` or
 | **elevation** | baseline | Non-learned: world-frame elevation mapping (Fankhauser-style, per-cell Kalman fusion, known poses). The default comparator. | — |
 | **legacy_slam** | baseline | Non-learned: old shift-and-composite map; blurs by construction. Kept as the naive tier. | — |
 
-Only **v3** can be trained today; training and evaluating the single-frame models v1 and
-v2 is not implemented yet. Archived models can be evaluated but not trained. The names
+Only **v3** can be trained today; training the single-frame models v1 and v2 is not
+implemented yet. Every learned model, archived ones included, can be evaluated. The names
 `v5`, `v6`, `heightmap_v5` and `heightmap_v6` from earlier versions are no longer
 accepted; the error message names the replacement. The registry header records how the
 code-era names map onto the thesis names.
@@ -237,15 +238,18 @@ python scripts/perception/train_perception.py \
 
 ### C. Perception and baseline evaluation (`evaluate_perception.py`)
 Runs a locomotion policy in a camera-enabled `Dataset` task and reconstructs the height
-map with `--method model` (a checkpoint of `v3`, `v5_archived` or `v6_archived`) or `--method slam`
-(`--slam_variant elevation|legacy`, no checkpoint needed). It records `eval.mp4` (map
-panels with a fixed colorbar) and `data.h5` for the analyzer. With `--headless` the
-script exits after saving. (`evaluate_slam.py` is a deprecated alias for `--method slam`.)
+map with `--method model` (a checkpoint of any learned model, e.g. `v3` or `v6_archived`)
+or `--method slam` (`--slam_variant elevation|legacy`, no checkpoint needed). It records
+`eval.mp4` (map panels with a fixed colorbar) and `data.h5` for the analyzer. With
+`--headless` the script exits after saving. (`evaluate_slam.py` is a deprecated alias for
+`--method slam`.) Each robot keeps its own model memory, cleared only when that robot
+resets. The script stops with an error if the task has no ground-truth height scanner.
 
 `data.h5` holds one group per env (`env_i/{gt_height, pred_height, sparse_height,
-occlusion_mask, robot_pos, robot_quat, dones}`) plus file attributes (`task`,
-`locomotion_checkpoint`, `perception_checkpoint` or `slam_variant`, `method`, `date`,
-`git_commit`).
+occlusion_mask, robot_pos, robot_quat, dones}`, plus the four raw depth images) and file
+attributes (`task`, `locomotion_checkpoint`, `perception_checkpoint` or `slam_variant`,
+`method`, `date`, `git_commit`). The last attribute written is `complete = True`; the
+analyzer refuses a file without it, since the run that wrote it may have crashed.
 ```bash
 python scripts/perception/evaluate_perception.py \
     --task Meldog-RL-Dataset-Rough-v0 \
@@ -258,17 +262,33 @@ python scripts/perception/evaluate_perception.py \
     --method slam --slam_variant elevation --headless
 ```
 
-### D. Offline baseline replay (`run_slam_offline.py`)
-Re-runs a baseline on the sparse maps and poses stored in an existing `data.h5`, without
-Isaac Sim, in seconds. This gives a **same-trajectory** model-vs-baseline comparison:
-record one model run, replay the baseline on its `data.h5`, analyze both together.
+### D. Offline replay (`run_model_offline.py`, `run_slam_offline.py`)
+Re-run a learned model or a baseline on the sparse maps and poses stored in an existing
+`data.h5`, without Isaac Sim. Every method then sees **identical frames**: record a run
+once, replay each model and baseline on it, and analyze them together.
+
+`run_model_offline.py` steps the model through the recording with one memory per robot,
+cleared at the recorded resets, and writes a new `PE_<model>-replay_*` folder. Its
+`data.h5` copies the recording without the raw depth images (`--copy_depth` keeps them)
+and records the model, the checkpoint and its sha256, and the source file (`replay_of`).
+It also measures the per-frame cost for one robot (batch 1, 50 warm-up and 1000 timed
+steps): the model step and, separately, the depth projector that makes its input. The
+result is stored as the `timing` attribute and appears in `metrics.json`. `--no_timing`
+skips it; `--timing_only` only measures and writes `timing.json`, and needs no checkpoint,
+since the cost does not depend on the weights.
 ```bash
+python scripts/perception/run_model_offline.py logs/perception/PE_v3_.../data.h5 \
+    --model v3 --checkpoint logs/perception/PM_v3_.../model_best.pt   # -> PE_v3-replay_*
+python scripts/perception/run_model_offline.py logs/perception/PE_v3_.../data.h5 \
+    --model v6_archived --timing_only
 python scripts/perception/run_slam_offline.py logs/perception/PE_v3_.../data.h5 \
     --variant elevation        # -> new PE_slam-elevation-replay_* folder
 python scripts/perception/analyze_perception.py \
-    logs/perception/PE_v3_.../data.h5 logs/perception/PE_slam-elevation-replay_.../data.h5 \
+    logs/perception/PE_v3-replay_.../data.h5 logs/perception/PE_slam-elevation-replay_.../data.h5 \
     --labels model slam
 ```
+A replay's predictions differ from the live run's by up to about 1 mm, because
+`data.h5` stores heights in whole millimetres.
 
 ---
 
@@ -323,7 +343,10 @@ python scripts/locomotion/analyze_locomotion.py \
 ### B. Perception analyzer (`analyze_perception.py`)
 Reads one or two `data.h5` files (model and/or baseline); writes `metrics.json`,
 `report.md` and `plots/` (ground truth | prediction | sparse input | error panels with
-fixed scales, plus error over time). Two inputs give a side-by-side comparison.
+fixed scales, plus error over time). Two inputs give a side-by-side comparison. A file
+without `complete = True` is refused; `--allow_incomplete` reads files recorded before
+that marker existed and lists them under `meta.incomplete_inputs`. A replay's per-frame
+cost appears as `timing` (and `timing_by_input` for two inputs).
 ```bash
 python scripts/perception/analyze_perception.py MODEL.h5 [SLAM.h5] \
     --labels model slam            # [-o DIR] [--env N] [--timesteps 50 200 500 950]
