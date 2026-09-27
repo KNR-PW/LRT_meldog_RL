@@ -181,6 +181,22 @@ def _decode_attr(v):
     return v
 
 
+def is_complete(attrs: dict) -> bool:
+    """True if the writer finished: ``complete=True`` is every writer's last write."""
+    return bool(attrs.get("complete", False))
+
+
+def read_timing(attrs: dict):
+    """The per-frame cost block a replay stores as the JSON attr ``timing``, or None."""
+    raw = attrs.get("timing")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _iter_env_groups(f: h5py.File):
     """Yield (env_name, accessor) pairs, tolerating per-env and flat layouts."""
     env_names = sorted(
@@ -787,6 +803,12 @@ def main():
         default=DEFAULT_TIMESTEPS,
         help="Timesteps for panel plots (clamped to sequence length).",
     )
+    parser.add_argument(
+        "--allow_incomplete",
+        action="store_true",
+        help="Read inputs without the complete=True marker (files recorded before it existed); "
+        "metrics.json then lists them under meta.incomplete_inputs.",
+    )
     args = parser.parse_args()
 
     if len(args.inputs) > 2:
@@ -810,8 +832,18 @@ def main():
     # Load + compute per input.
     results = []  # (label, metrics, schema)
     loaded = []  # (label, data)
+    incomplete = []
     for label, path in zip(labels, input_paths):
         data = load_h5(path)
+        if not is_complete(data["attrs"]):
+            if not args.allow_incomplete:
+                parser.error(
+                    f"{path} has no complete=True marker, so the run that wrote it may have "
+                    "crashed. Re-run it, or pass --allow_incomplete for a file recorded before "
+                    "the marker existed."
+                )
+            print(f"WARNING: {path} has no complete=True marker (read with --allow_incomplete)")
+            incomplete.append(str(path))
         metrics = compute_metrics(data)
         schema = dict(data["schema"])
         schema["input_h5"] = str(path)
@@ -857,13 +889,22 @@ def main():
         "sentinel_thresh_m": SENTINEL_THRESH,
         "reset_jump_m": RESET_JUMP_M,
         "schema_notes": {r[0]: r[2] for r in results},
+        "incomplete_input": bool(incomplete),
+        "incomplete_inputs": incomplete,
     }
-    out = {"meta": meta, "perception": results[0][1], "flags": flags}
+    timings = {label: read_timing(data["attrs"]) for label, data in loaded}
+    out = {
+        "meta": meta,
+        "perception": results[0][1],
+        "timing": timings[labels[0]],
+        "flags": flags,
+    }
     if len(results) > 1:
         out["comparison"] = {
             "labels": labels,
             **{r[0]: r[1] for r in results},
         }
+        out["timing_by_input"] = timings
     with open(out_dir / "metrics.json", "w") as f:
         json.dump(out, f, indent=2)
 

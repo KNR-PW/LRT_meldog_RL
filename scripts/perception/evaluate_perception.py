@@ -42,16 +42,12 @@ def check_model_name(name):
         entry = registry.resolve_model(name)
     except registry.ModelRegistryError as err:
         parser.error(str(err))
-    if entry.kind == registry.SINGLE_FRAME:
-        parser.error(
-            f"'{entry.name}' is a single-frame model; single-frame evaluation comes in a later step"
-        )
     if entry.kind == registry.BASELINE:
         parser.error(
             f"'{entry.name}' is a non-learned baseline; use --method slam "
             "--slam_variant elevation|legacy"
         )
-    if entry.kind not in (registry.RECURRENT, registry.AUTOREGRESSIVE):
+    if entry.kind not in (registry.SINGLE_FRAME, registry.RECURRENT, registry.AUTOREGRESSIVE):
         parser.error(f"'{entry.name}' ({entry.kind}) cannot be evaluated by this script")
     return entry.name
 
@@ -93,7 +89,7 @@ parser.add_argument(
     "--model",
     type=str,
     default="v3",
-    help="Registry name of a learned model: v3, v5_archived or v6_archived (--method model).",
+    help="Registry name of a learned model, e.g. v3, v6_archived (--method model).",
 )
 parser.add_argument(
     "--slam_variant",
@@ -141,11 +137,11 @@ from rsl_rl.runners import OnPolicyRunner
 import meldog_rl  # noqa: F401
 from meldog_rl import agents, envs  # noqa: F401
 from meldog_rl.models.perception import (
-    RECURRENT,
     DepthProjector,
     ElevationMapper,
+    PerceptionStepper,
     SLAMBaseline,
-    build_model,
+    load_perception_model,
     resolve_model,
 )
 from meldog_rl.utils import make_evaluation_dir
@@ -303,8 +299,8 @@ def main():
     # Create depth projector
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
-    model = None
     model_entry = None
+    stepper = None
     slam = None
     if args_cli.method == "slam":
         slam_cls = SLAMBaseline if args_cli.slam_variant == "legacy" else ElevationMapper
@@ -315,40 +311,23 @@ def main():
     else:
         model_entry = resolve_model(args_cli.model)  # checked before launch; canonical name
         perc_desc = model_entry.name
-        # Load model config from checkpoint if available
-        gru_hidden = args_cli.gru_hidden
-        gru_layers = args_cli.gru_layers
-
-        if args_cli.perception_checkpoint:
-            checkpoint = torch.load(
-                args_cli.perception_checkpoint, map_location=env.device, weights_only=False
-            )
-            if isinstance(checkpoint, dict) and "config" in checkpoint:
-                saved_config = checkpoint["config"]
-                gru_hidden = saved_config.get("gru_hidden", gru_hidden)
-                gru_layers = saved_config.get("gru_layers", gru_layers)
-                print(f"Detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
-
-        # Create model (gru_* are used only by recurrent models)
-        model = build_model(model_entry, gru_hidden=gru_hidden, gru_layers=gru_layers)
-        model = model.to(env.device)
+        # gru_* are used only by recurrent models; a checkpoint's own config wins.
+        model, info = load_perception_model(
+            model_entry,
+            args_cli.perception_checkpoint,
+            env.device,
+            gru_hidden=args_cli.gru_hidden,
+            gru_layers=args_cli.gru_layers,
+        )
         print(f"Model: {model_entry.name} ({model_entry.kind}) - {model_entry.summary}")
-
         n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Model parameters: {n_params:,}")
-
-        model.eval()
-
         if args_cli.perception_checkpoint:
-            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                model.load_state_dict(checkpoint["model_state_dict"])
-                epoch = checkpoint.get("epoch", "unknown")
-                print(f"Loaded perception model from epoch {epoch}")
-            else:
-                model.load_state_dict(checkpoint)
-                print("Loaded perception model")
+            print(f"Loaded perception model (epoch {info['epoch']})")
         else:
             print("Warning: No perception checkpoint, using untrained model")
+        # One memory per robot, cleared only for the robots that reset.
+        stepper = PerceptionStepper(model, model_entry.kind, args_cli.num_envs, env.device)
 
     # Output directory
     save_dir = make_evaluation_dir("perception", perc_desc)
@@ -430,21 +409,16 @@ def main():
         env.close()
         return
 
+    # Without the ground-truth scanner every error would be measured against zeros.
+    if getattr(raw_env, "_gt_scanner", None) is None:
+        env.close()
+        raise RuntimeError(
+            f"{args_cli.task} has no ground-truth height scanner (_gt_scanner); "
+            "use a Dataset task"
+        )
+
     obs = env.get_observations()
     trunk_link_idx = raw_env._robot.find_bodies("trunk_link")[0][0]
-
-    # Initialize hidden states (recurrent models)
-    hidden_states = [None] * args_cli.num_envs
-
-    # Autoregressive state tracking
-    prev_outputs = [
-        torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device) for _ in range(args_cli.num_envs)
-    ]
-    prev_valids = [
-        torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device) for _ in range(args_cli.num_envs)
-    ]
-    prev_positions = [None] * args_cli.num_envs
-    prev_yaws = [None] * args_cli.num_envs
 
     step = 0
     print(f"Recording {args_cli.video_length} steps ({perc_desc.upper()} mode)")
@@ -454,18 +428,11 @@ def main():
             actions = policy(obs)
             obs, _, dones, _ = env.step(actions)
 
-            # Reset state for terminated environments
+            # Reset SLAM state for terminated environments (the model stepper does its own)
             if slam is not None:
                 done_indices = dones.nonzero(as_tuple=False).squeeze(-1)
                 if done_indices.numel() > 0:
                     slam.reset_env(done_indices)
-            for i in range(args_cli.num_envs):
-                if dones[i]:
-                    hidden_states[i] = None
-                    prev_outputs[i] = torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device)
-                    prev_valids[i] = torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device)
-                    prev_positions[i] = None
-                    prev_yaws[i] = None
 
             # Get camera data
             d_front = raw_env._cameras["front"].data.output["distance_to_image_plane"]
@@ -496,45 +463,20 @@ def main():
             _, _, yaw = euler_xyz_from_quat(robot_quat)
             yaw_quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
 
-            # Gravity vector
-            w, x, y, z = robot_quat[:, 0], robot_quat[:, 1], robot_quat[:, 2], robot_quat[:, 3]
-            gx = -2 * (x * z + w * y)
-            gy = -2 * (y * z - w * x)
-            gz = -(1 - 2 * (x * x + y * y))
-            grav = torch.stack([gx, gy, gz], dim=1)
-
             # Project depth to sparse map
             sparse_map, occlusion_mask = projector(d_stack, robot_quat)
 
             # Run perception (SLAM baseline or learned model)
             if slam is not None:
                 pred_scan = slam(sparse_map, occlusion_mask, robot_pos, yaw)
-            elif model_entry.kind == RECURRENT:
-                # Recurrent (v3, v5_archived): Use hidden state
-                pred_scan, new_hidden = model(sparse_map, occlusion_mask, grav, hidden_states[0])
-                hidden_states[0] = new_hidden
             else:
-                # Autoregressive (v6_archived): Use previous output
-                # (simplified - treats all envs together)
-                # TODO: Proper per-env tracking with coordinate transform
-                pred_scan = model(
-                    sparse_map,
-                    occlusion_mask,
-                    prev_outputs[0].expand(args_cli.num_envs, -1, -1, -1),
-                    prev_valids[0].expand(args_cli.num_envs, -1, -1, -1),
-                    grav,
-                )
-                prev_outputs[0] = pred_scan[0:1].detach()
-                prev_valids[0] = torch.ones(1, 1, MAP_SIZE, MAP_SIZE, device=env.device)
+                pred_scan = stepper.step(sparse_map, occlusion_mask, robot_pos, robot_quat, dones)
 
             # GT height
-            if hasattr(raw_env, "_gt_scanner") and raw_env._gt_scanner is not None:
-                trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
-                gt_scan = raw_env._gt_scanner.data.ray_hits_w[..., 2] - trunk_z
-                gt_scan = gt_scan.view(args_cli.num_envs, MAP_SIZE, MAP_SIZE)
-                gt_scan = torch.clamp(gt_scan, -2.0, 2.0).transpose(-2, -1).flip(dims=[-2, -1])
-            else:
-                gt_scan = torch.zeros((args_cli.num_envs, MAP_SIZE, MAP_SIZE), device=env.device)
+            trunk_z = raw_env._gt_scanner.data.pos_w[:, 2].unsqueeze(1)
+            gt_scan = raw_env._gt_scanner.data.ray_hits_w[..., 2] - trunk_z
+            gt_scan = gt_scan.view(args_cli.num_envs, MAP_SIZE, MAP_SIZE)
+            gt_scan = torch.clamp(gt_scan, -2.0, 2.0).transpose(-2, -1).flip(dims=[-2, -1])
 
             diff_scan = torch.abs(gt_scan - pred_scan.squeeze(1))
 
@@ -661,6 +603,9 @@ def main():
             f.attrs["model"] = model_entry.name
         f.attrs["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.attrs["git_commit"] = get_git_suffix()
+        # Last write: the analyzer refuses a file without it (a crashed run is not a result).
+        f.flush()
+        f.attrs["complete"] = True
 
     print("Data saved")
 

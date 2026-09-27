@@ -132,14 +132,19 @@ def main():
                 "diff_height", data=to_int16_mm(np.abs(gt[:, i] - preds[:, i])), compression="gzip"
             )
 
+        # The source's own completion marker and timing describe the source, not this file.
         for key, val in f_in.attrs.items():
-            f_out.attrs[key] = val
+            if key not in ("complete", "timing"):
+                f_out.attrs[key] = val
         f_out.attrs["method"] = "slam"
         f_out.attrs["slam_variant"] = args.variant
         f_out.attrs["perception_checkpoint"] = f"slam:{args.variant}"
         f_out.attrs["replay_of"] = os.path.abspath(args.input)
         f_out.attrs["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f_out.attrs["git_commit"] = get_git_suffix()
+        # Last write: the analyzer refuses a file without it.
+        f_out.flush()
+        f_out.attrs["complete"] = True
 
     f_in.close()
     print("Done")

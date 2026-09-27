@@ -31,6 +31,7 @@ from .registry import (
     resolve_trainable,
 )
 from .slam_baseline import SLAMBaseline
+from .stepper import PerceptionStepper, file_sha256, gravity_from_quat, load_perception_model
 
 # TODO: VoxelSparse
 
@@ -63,6 +64,11 @@ __all__ = [
     "print_models",
     "resolve_model",
     "resolve_trainable",
+    # Stepping (live evaluation and offline replay)
+    "PerceptionStepper",
+    "file_sha256",
+    "gravity_from_quat",
+    "load_perception_model",
     # Common
     "ConvGRU",
     "ConvGRUCell",

@@ -122,6 +122,18 @@ see. Comparisons require the **same trajectory** (identical `data.h5` input, see
 For absolute numbers, compare with *Reconstructing Occluded Elevation Information in
 Terrain Maps With Self-Supervised Learning* before quoting any.
 
+**Per-frame cost** (`timing` in `metrics.json`, measured by `run_model_offline.py`) is
+reported next to accuracy and has no pass/fail range yet. It is measured for one robot
+(batch 1) after warm-up, separately for the model step and the depth projector:
+
+| Field | Meaning |
+|---|---|
+| `ms_p50`, `ms_p95` | median and 95th-percentile time per frame, ms (GPU work included) |
+| `fps` | 1000 / `ms_p50` |
+| `params` | trainable parameters (model only) |
+| `peak_mem_mb` | peak torch memory on the GPU during the timed steps, weights included |
+| `device` | GPU (or CPU) the numbers were measured on; compare only like with like |
+
 ## Updating the ranges
 
 Low-confidence (**L**) rows should be revisited once enough benchmark runs exist: either
