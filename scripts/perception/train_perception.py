@@ -6,20 +6,17 @@
 
 This is a pure PyTorch training script - NO Isaac Lab required.
 
-Supports:
-- V5 (heightmap_v5): ConvGRU temporal model
-- V6 (heightmap_v6): Autoregressive model with coordinate transform
+Models are chosen by registry name (meldog_rl.models.perception.registry). Trainable now:
+- v3: U-Net with ConvGRU temporal fusion (recurrent pipeline)
 
 Usage:
-    # Train V5 (ConvGRU) model
+    # Train v3
     python scripts/perception/train_perception.py \
-        --model heightmap_v5 \
+        --model v3 \
         --dataset datasets/PD_rough_2026-01-06_10-00-00/dataset.h5
 
-    # Train V6 (autoregressive) model  
-    python scripts/perception/train_perception.py \
-        --model heightmap_v6 \
-        --dataset datasets/PD_rough_2026-01-06_10-00-00/dataset.h5
+    # List all registered models and which ones can be trained
+    python scripts/perception/train_perception.py --list-models
 
 Output:
     logs/perception/PM_{model}_{terrain}_{timestamp}/
@@ -51,11 +48,15 @@ from meldog_rl.datasets import (
     SequentialDatasetV6,
 )
 from meldog_rl.models.perception import (
-    HeightmapAutoregressive,
-    HeightmapConvGRU,
+    AUTOREGRESSIVE,
+    RECURRENT,
     HybridTerrainLoss,
+    ModelRegistryError,
     augment_sequence,
     augment_sequence_v6,
+    build_model,
+    print_models,
+    resolve_trainable,
 )
 from meldog_rl.utils import make_perception_log_dir
 from meldog_rl.utils.git_utils import save_git_metadata
@@ -95,12 +96,12 @@ def extract_terrain_from_dataset(dataset_path: str) -> str:
 
 
 # =============================================================================
-# V5 TRAINING (ConvGRU)
+# RECURRENT TRAINING (ConvGRU: v3; this pipeline was written for code-era V5)
 # =============================================================================
 
 
-def train_v5(args):
-    """Train V5 ConvGRU model."""
+def train_v5(args, entry):
+    """Train a recurrent (ConvGRU) model built from its registry entry."""
     device = args.device
 
     # Dataset
@@ -124,7 +125,7 @@ def train_v5(args):
     )
 
     # Model
-    model = HeightmapConvGRU(gru_hidden=args.gru_hidden, gru_layers=args.gru_layers).to(device)
+    model = build_model(entry, gru_hidden=args.gru_hidden, gru_layers=args.gru_layers).to(device)
 
     # GPU preprocessing
     gpu_processor = GPUProcessorV5(device=device)
@@ -139,12 +140,12 @@ def train_v5(args):
 
     # Logging
     terrain = extract_terrain_from_dataset(args.dataset)
-    log_dir = make_perception_log_dir("v5", terrain)
+    log_dir = make_perception_log_dir(entry.name, terrain)
     log_dir.mkdir(parents=True, exist_ok=True)
     save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
 
-    print("[INFO] Training V5 ConvGRU model")
+    print(f"[INFO] Training {entry.name}: {entry.summary}")
     print(f"[INFO] Dataset: {args.dataset}")
     print(f"[INFO] Output: {log_dir}")
     print(f"[INFO] Sequences: {len(train_dataset)}")
@@ -314,10 +315,12 @@ def train_v5(args):
 
 # =============================================================================
 # V6 TRAINING (Autoregressive)
+# Kept for autoregressive models; no registered autoregressive model is trainable now
+# (v6_archived is frozen), so main() does not reach it.
 # =============================================================================
 
 
-def train_v6(args):
+def train_v6(args, entry):
     """Train V6 autoregressive model."""
     device = args.device
 
@@ -341,7 +344,7 @@ def train_v6(args):
     )
 
     # Model
-    model = HeightmapAutoregressive().to(device)
+    model = build_model(entry).to(device)
 
     # GPU preprocessing
     gpu_processor = GPUProcessorV6(device=device)
@@ -356,7 +359,7 @@ def train_v6(args):
 
     # Logging
     terrain = extract_terrain_from_dataset(args.dataset)
-    log_dir = make_perception_log_dir("v6", terrain)
+    log_dir = make_perception_log_dir(entry.name, terrain)
     log_dir.mkdir(parents=True, exist_ok=True)
     save_git_metadata(log_dir)
     writer = SummaryWriter(log_dir=str(log_dir))
@@ -588,9 +591,14 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        required=True,
-        choices=["heightmap_v5", "heightmap_v6"],
-        help="Model architecture to train.",
+        default=None,
+        help="Registry name of the model to train (e.g. v3). See --list-models.",
+    )
+    parser.add_argument(
+        "--list-models",
+        "--list_models",
+        action="store_true",
+        help="Print the model registry (names, status, trainability) and exit.",
     )
     parser.add_argument(
         "--dataset", type=str, default="auto", help="Path to dataset H5 file or 'auto' for latest."
@@ -607,11 +615,11 @@ def main():
     parser.add_argument("--seq_len", type=int, default=16, help="Sequence length.")
     parser.add_argument("--stride", type=int, default=8, help="Sequence stride.")
 
-    # V5 specific
+    # Recurrent models (v3)
     parser.add_argument("--gru_hidden", type=int, default=128, help="ConvGRU hidden channels.")
     parser.add_argument("--gru_layers", type=int, default=2, help="ConvGRU layers.")
 
-    # V6 specific
+    # Autoregressive models
     parser.add_argument("--teacher_forcing", type=float, default=0.5, help="Starting TF ratio.")
 
     # Loss weights
@@ -625,6 +633,17 @@ def main():
 
     args = parser.parse_args()
 
+    if args.list_models:
+        print_models()
+        return
+    if args.model is None:
+        parser.error("--model is required (see --list-models)")
+    try:
+        entry = resolve_trainable(args.model)
+    except ModelRegistryError as err:
+        parser.error(str(err))
+    args.model = entry.name  # canonical name, stored in every checkpoint's config
+
     # Auto-select dataset
     if args.dataset == "auto":
         files = glob.glob("datasets/*/dataset.h5")
@@ -634,14 +653,14 @@ def main():
         args.dataset = sorted(files, key=os.path.getmtime)[-1]
         print(f"[INFO] Auto-selected dataset: {args.dataset}")
 
-    # Train
-    if args.model == "heightmap_v5":
-        train_v5(args)
-    elif args.model == "heightmap_v6":
-        args.lr = 5e-5  # Lower LR for V6
-        train_v6(args)
+    # Train (the training loop depends on what the model consumes per step)
+    if entry.kind == RECURRENT:
+        train_v5(args, entry)
+    elif entry.kind == AUTOREGRESSIVE:
+        args.lr = 5e-5  # Lower LR for autoregressive models (as for code-era V6)
+        train_v6(args, entry)
     else:
-        raise ValueError(f"Unknown model: {args.model}")
+        raise ValueError(f"No training loop for {entry.kind} model '{entry.name}'")
 
 
 if __name__ == "__main__":

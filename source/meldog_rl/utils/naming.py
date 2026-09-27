@@ -52,8 +52,8 @@ def make_output_name(
         >>> make_output_name("LM", "rough", "sim")
         'LM_rough_sim_2026-01-19_12-00-00'
 
-        >>> make_output_name("PM", "hmv6", "rough")
-        'PM_hmv6_rough_2026-01-19_12-00-00'
+        >>> make_output_name("PM", "v3", "rough")
+        'PM_v3_rough_2026-01-19_12-00-00'
 
         >>> make_output_name("PD", "flat")
         'PD_flat_2026-01-19_12-00-00'
@@ -104,7 +104,7 @@ def make_perception_log_dir(
     """Create perception training log directory path.
 
     Args:
-        model_type: Model architecture (hmv5, hmv6, voxel, slam)
+        model_type: Model registry name (e.g. v3; see meldog_rl.models.perception.registry)
         dataset_terrain: Terrain the dataset was collected on
         base_dir: Base logs directory
         timestamp: Optional timestamp
@@ -113,8 +113,8 @@ def make_perception_log_dir(
         Path to log directory
 
     Example:
-        >>> make_perception_log_dir("hmv6", "rough")
-        PosixPath('logs/perception/PM_hmv6_rough_2026-01-19_12-00-00')
+        >>> make_perception_log_dir("v3", "rough")
+        PosixPath('logs/perception/PM_v3_rough_2026-01-19_12-00-00')
     """
     name = make_output_name("PM", model_type, dataset_terrain, timestamp=timestamp)
     return Path(base_dir) / name

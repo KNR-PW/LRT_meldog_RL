@@ -21,19 +21,20 @@ This project provides a complete pipeline for training  locomotion and perceptio
 
 ## Perception Models
 
-Currently there are three functioning versions of the terrain perception network:
-
 **Input:** Sparse height map (40×40) from 4 depth cameras + gravity vector from IMU  
 **Output:** Reconstructed height map (40×40) 
 
-### V1 — Base Model
-Standard U-Net encoder-decoder with skip connections. Gravity vector is embedded via MLP and injected at the bottleneck.
+The terrain perception network comes in three versions, named as in the accompanying
+master's thesis:
 
-### V2 — Deep + Attention
-Deeper encoder (additional level down to 5×5) with self-attention mechanism. Larger receptive field allows the network to capture global terrain structure.
+- **v1 — shallow:** U-Net encoder-decoder with skip connections, 2 encoder stages down to
+  10×10. The gravity vector is embedded by an MLP and injected at the bottleneck.
+- **v2 — deep:** one more encoder stage, down to 5×5, for a larger receptive field.
+- **v3 — temporal:** v2 plus ConvGRU layers at the bottleneck that keep a hidden state
+  across frames, a "belief state" that remembers regions the robot can no longer see.
 
-### V3 — Temporal
-Adds ConvGRU layers that maintain hidden state across frames. The network builds a "belief state" about terrain — remembering previously observed regions that are now occluded.
+Older code-era models are kept under archived names. The full list, with training
+support and parameter counts, is in [docs/manual.md §2](docs/manual.md#2-perception-models).
 
 ## Project Structure
 
@@ -51,7 +52,7 @@ Built on Isaac Lab's direct workflow template. Here's where key components live:
   - `dataset/` — Dataset collection configs with camera observations enabled
 
 ### Neural Network Models
-- **`source/meldog_rl/models/perception/`** — Perception architectures (V1 base, V2 attention, V3 temporal)
+- **`source/meldog_rl/models/perception/`** — Perception architectures (v1, v2, v3 and archived models); `registry.py` lists them all
 - **`source/meldog_rl/agents/`** — Locomotion policy configuration (PPO hyperparameters, network architecture)
 
 ### Data

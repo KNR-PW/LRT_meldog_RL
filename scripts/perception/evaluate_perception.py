@@ -5,12 +5,14 @@
 """Evaluate perception (learned model OR non-learned SLAM baseline).
 
 Runs a locomotion policy in a camera-enabled Dataset task, reconstructs the height
-map with either a learned model (--method model, V5/V6) or a SLAM baseline
-(--method slam, legacy shift-and-composite or world-frame elevation mapping),
-records eval.mp4 and dumps data.h5 for offline analysis (analyze_perception.py).
+map with either a learned model (--method model; --model is a registry name: v3, or the
+archived v5_archived / v6_archived) or a SLAM baseline (--method slam, legacy
+shift-and-composite or world-frame elevation mapping), records eval.mp4 and dumps data.h5
+for offline analysis (analyze_perception.py).
 """
 
 import argparse
+import importlib.util
 import os
 import sys
 from datetime import datetime
@@ -18,6 +20,40 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "source"))
 
 from isaaclab.app import AppLauncher
+
+_REGISTRY_FILE = os.path.join(
+    os.path.dirname(__file__), "..", "..", "source/meldog_rl/models/perception/registry.py"
+)
+
+
+def check_model_name(name):
+    """Resolve --model in the model registry before Isaac Sim starts; return its canonical name.
+
+    The registry file is loaded on its own: importing the meldog_rl package here would import
+    torch and every perception model before AppLauncher (Isaac Lab scripts import torch after it).
+    The registry itself needs only the standard library, so a bad name fails in a second.
+    """
+    spec = importlib.util.spec_from_file_location("_perception_model_registry", _REGISTRY_FILE)
+    registry = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = registry
+    spec.loader.exec_module(registry)
+
+    try:
+        entry = registry.resolve_model(name)
+    except registry.ModelRegistryError as err:
+        parser.error(str(err))
+    if entry.kind == registry.SINGLE_FRAME:
+        parser.error(
+            f"'{entry.name}' is a single-frame model; single-frame evaluation comes in a later step"
+        )
+    if entry.kind == registry.BASELINE:
+        parser.error(
+            f"'{entry.name}' is a non-learned baseline; use --method slam "
+            "--slam_variant elevation|legacy"
+        )
+    if entry.kind not in (registry.RECURRENT, registry.AUTOREGRESSIVE):
+        parser.error(f"'{entry.name}' ({entry.kind}) cannot be evaluated by this script")
+    return entry.name
 
 
 def str2bool(v):
@@ -54,7 +90,10 @@ parser.add_argument(
     help="Reconstruction method: learned model or non-learned SLAM baseline.",
 )
 parser.add_argument(
-    "--model", type=str, default="v5", choices=["v5", "v6"], help="Model type (--method model)."
+    "--model",
+    type=str,
+    default="v3",
+    help="Registry name of a learned model: v3, v5_archived or v6_archived (--method model).",
 )
 parser.add_argument(
     "--slam_variant",
@@ -73,12 +112,16 @@ parser.add_argument(
 )
 
 # Model parameters (auto-detected from checkpoint if available)
-parser.add_argument("--gru_hidden", type=int, default=128, help="ConvGRU hidden channels (V5).")
-parser.add_argument("--gru_layers", type=int, default=2, help="ConvGRU layers (V5).")
+parser.add_argument(
+    "--gru_hidden", type=int, default=128, help="ConvGRU hidden channels (recurrent models)."
+)
+parser.add_argument("--gru_layers", type=int, default=2, help="ConvGRU layers (recurrent models).")
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 args_cli.enable_cameras = True
+if args_cli.method == "model":
+    args_cli.model = check_model_name(args_cli.model)
 
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
@@ -98,11 +141,12 @@ from rsl_rl.runners import OnPolicyRunner
 import meldog_rl  # noqa: F401
 from meldog_rl import agents, envs  # noqa: F401
 from meldog_rl.models.perception import (
+    RECURRENT,
     DepthProjector,
     ElevationMapper,
-    HeightmapAutoregressive,
-    HeightmapConvGRU,
     SLAMBaseline,
+    build_model,
+    resolve_model,
 )
 from meldog_rl.utils import make_evaluation_dir
 from meldog_rl.utils.git_utils import get_git_suffix
@@ -260,6 +304,7 @@ def main():
     projector = DepthProjector(map_size=MAP_SIZE, map_res=MAP_RES, device=env.device)
 
     model = None
+    model_entry = None
     slam = None
     if args_cli.method == "slam":
         slam_cls = SLAMBaseline if args_cli.slam_variant == "legacy" else ElevationMapper
@@ -268,7 +313,8 @@ def main():
         perc_desc = f"slam-{args_cli.slam_variant}"
         print(f"SLAM baseline: {args_cli.slam_variant}")
     else:
-        perc_desc = args_cli.model
+        model_entry = resolve_model(args_cli.model)  # checked before launch; canonical name
+        perc_desc = model_entry.name
         # Load model config from checkpoint if available
         gru_hidden = args_cli.gru_hidden
         gru_layers = args_cli.gru_layers
@@ -283,11 +329,10 @@ def main():
                 gru_layers = saved_config.get("gru_layers", gru_layers)
                 print(f"Detected from checkpoint: gru_hidden={gru_hidden}, gru_layers={gru_layers}")
 
-        # Create model
-        if args_cli.model == "v5":
-            model = HeightmapConvGRU(gru_hidden=gru_hidden, gru_layers=gru_layers).to(env.device)
-        else:
-            model = HeightmapAutoregressive().to(env.device)
+        # Create model (gru_* are used only by recurrent models)
+        model = build_model(model_entry, gru_hidden=gru_hidden, gru_layers=gru_layers)
+        model = model.to(env.device)
+        print(f"Model: {model_entry.name} ({model_entry.kind}) - {model_entry.summary}")
 
         n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         print(f"Model parameters: {n_params:,}")
@@ -388,10 +433,10 @@ def main():
     obs = env.get_observations()
     trunk_link_idx = raw_env._robot.find_bodies("trunk_link")[0][0]
 
-    # Initialize hidden states (V5 only)
+    # Initialize hidden states (recurrent models)
     hidden_states = [None] * args_cli.num_envs
 
-    # V6 state tracking
+    # Autoregressive state tracking
     prev_outputs = [
         torch.zeros(1, 1, MAP_SIZE, MAP_SIZE, device=env.device) for _ in range(args_cli.num_envs)
     ]
@@ -464,12 +509,13 @@ def main():
             # Run perception (SLAM baseline or learned model)
             if slam is not None:
                 pred_scan = slam(sparse_map, occlusion_mask, robot_pos, yaw)
-            elif args_cli.model == "v5":
-                # V5: Use hidden state
+            elif model_entry.kind == RECURRENT:
+                # Recurrent (v3, v5_archived): Use hidden state
                 pred_scan, new_hidden = model(sparse_map, occlusion_mask, grav, hidden_states[0])
                 hidden_states[0] = new_hidden
             else:
-                # V6: Use previous output (simplified - treats all envs together)
+                # Autoregressive (v6_archived): Use previous output
+                # (simplified - treats all envs together)
                 # TODO: Proper per-env tracking with coordinate transform
                 pred_scan = model(
                     sparse_map,
@@ -612,7 +658,7 @@ def main():
             f.attrs["slam_variant"] = args_cli.slam_variant
         else:
             f.attrs["perception_checkpoint"] = args_cli.perception_checkpoint or ""
-            f.attrs["model"] = args_cli.model
+            f.attrs["model"] = model_entry.name
         f.attrs["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.attrs["git_commit"] = get_git_suffix()
 
